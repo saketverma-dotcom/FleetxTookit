@@ -241,9 +241,9 @@ class TestUpdater:
         monkeypatch.setattr(ac, "_REMOTE_META", kw, raising=False)
 
     def test_newer_version_offered(self, monkeypatch):
-        self._meta(monkeypatch, _latest_version="3.1",
+        self._meta(monkeypatch, _latest_version="99.0",
                    _download_url="https://x/e.exe", _sha256="ABC")
-        assert up.check_update() == ("3.1", "https://x/e.exe", "abc")
+        assert up.check_update() == ("99.0", "https://x/e.exe", "abc")
 
     def test_same_or_older_not_offered(self, monkeypatch):
         for v in (cf.APP_VERSION, "0.9"):
