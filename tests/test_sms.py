@@ -167,6 +167,44 @@ class TestSmsRowsExcel:
         assert rows == [("888", "ok", "355387")]
 
 
+class TestDelayOverride:
+    """SMS tab sets a per-run delay override that _current_delay honors."""
+
+    def _fake(self):
+        from fleetx_toolkit.ui.app import FleetXToolkit
+        class V:
+            def __init__(self, v): self.v = v
+            def get(self): return self.v
+        f = FleetXToolkit.__new__(FleetXToolkit)
+        f.delay_var = V("1250")
+        f._delay_override = None
+        return f
+
+    def test_settings_delay_when_no_override(self):
+        f = self._fake()
+        assert abs(f._current_delay() - 1.25) < 1e-9
+
+    def test_override_wins(self):
+        f = self._fake(); f._delay_override = 5.0
+        assert f._current_delay() == 5.0
+
+    def test_zero_delay_allowed_via_override(self):
+        f = self._fake(); f._delay_override = 0.0
+        assert f._current_delay() == 0.0
+
+    def test_cleared_override_reverts(self):
+        f = self._fake(); f._delay_override = 9.0
+        assert f._current_delay() == 9.0
+        f._delay_override = None
+        assert abs(f._current_delay() - 1.25) < 1e-9
+
+    def test_bad_settings_value_falls_back_to_default(self):
+        from fleetx_toolkit.config import DELAY_MS
+        f = self._fake()
+        f.delay_var.v = "abc"
+        assert f._current_delay() == DELAY_MS / 1000
+
+
 class TestSharedSensorTypes:
     def test_empty_when_no_meta(self, monkeypatch):
         monkeypatch.setattr(ac, "_REMOTE_META", {}, raising=False)

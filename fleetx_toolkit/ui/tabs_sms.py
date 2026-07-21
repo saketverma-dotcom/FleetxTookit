@@ -70,6 +70,13 @@ class SmsTabMixin:
         self.sms_cc = tk.StringVar(value="")
         ttk.Entry(tab, textvariable=self.sms_cc, width=8).pack(anchor="w")
 
+        dr = ttk.Frame(tab); dr.pack(anchor="w", pady=(8, 0))
+        ttk.Label(dr, text="Delay between SMS (seconds):").pack(side="left")
+        self.sms_delay = tk.StringVar(value="5")
+        ttk.Entry(dr, textvariable=self.sms_delay, width=6).pack(side="left", padx=6)
+        ttk.Label(dr, text="(overrides the global Settings delay for SMS only)",
+                  foreground="gray").pack(side="left")
+
         ttk.Button(tab, text="▶ Send SMS",
                    command=lambda: self._run_thread(self._run_sms)).pack(anchor="w", pady=8)
 
@@ -144,12 +151,21 @@ class SmsTabMixin:
         if not rows:
             return
 
+        # Dedicated SMS delay (seconds) overrides the global Settings delay for
+        # this run only; restored in finally so other tabs are unaffected.
+        try:
+            sms_delay = float(self.sms_delay.get().strip() or 5)
+            if sms_delay < 0:
+                raise ValueError
+        except ValueError:
+            self.log(f"  ✗ Invalid SMS delay '{self.sms_delay.get()}' — must be seconds ≥ 0.", "err")
+            self._ui_error("SMS", "Delay between SMS must be a number of seconds (e.g. 5).")
+            return
+
         def fn(row):
             phone, msg, sim_id = row
             r = requests.post(SEMYSMS_API,
                               data=build_sms_params(tok, sim_id, phone, msg), timeout=30)
-            # Fold API-level failure (code != 0) into a non-2xx-style result so
-            # _loop's success/fail accounting and the log reflect real outcome.
             try:
                 ok = sms_success(r.json())
             except Exception:
@@ -157,4 +173,9 @@ class SmsTabMixin:
             if r.status_code == 200 and not ok:
                 r.status_code = 422   # surface API rejection as a failed row
             return (phone, msg[:40], sim_id), r
-        self._loop(rows, "SMS Send", fn, ["Mobile", "Message", "SIM ID"])
+
+        self._delay_override = sms_delay
+        try:
+            self._loop(rows, "SMS Send", fn, ["Mobile", "Message", "SIM ID"])
+        finally:
+            self._delay_override = None

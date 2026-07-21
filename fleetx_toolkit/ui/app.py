@@ -428,6 +428,14 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
                 self._busy = False
         threading.Thread(target=_wrapper, daemon=True).start()
     def _current_delay(self):
+        # A tab can set self._delay_override (seconds) to use its own gap for
+        # one run instead of the shared Settings delay; cleared when None.
+        ov = getattr(self, "_delay_override", None)
+        if ov is not None:
+            try:
+                return max(0.0, float(ov))
+            except Exception:
+                pass
         try:
             return max(0.2, float(self.delay_var.get()) / 1000)
         except Exception:
