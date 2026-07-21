@@ -11,7 +11,7 @@ DELAY_MS    = 1250
 TOKEN_PARAM = "udbhav"
 MOBILE_PARAM = "5754236272120"
 
-APP_VERSION = "3.2"
+APP_VERSION = "3.3"
 
 CRED_FILE     = os.path.join(os.path.expanduser("~"), ".fleetx_toolkit_creds.json")
 SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".fleetx_toolkit_settings.json")
@@ -25,7 +25,7 @@ ALLOWED_DOMAIN = "@fleetx.io"                        # only fleetx emails allowe
 CONTROLLABLE_TABS = [
     "Device Add", "SIM Inventory", "SIM Update", "Vehicle-Device Map",
     "Send Command", "Sequential 2-Phase", "SensorType", "Assets",
-    "Tickets",
+    "Tickets", "SMS Command",
 ]
 
 # Access file / logs sit NEXT TO the exe (or the entry script in dev mode).
@@ -55,6 +55,24 @@ SENSOR_PRESETS = [
     "TATA_EXPRESS_T_EV_WITH_ZIPTRON_BATTERY_TFT100_SOS_AIN2",
 ]
 SIM_PROVIDERS  = ["ONOMONDO", "TATA", "AERIS", "AIRTEL", "VODAFONE", "BSNL", "JIO"]
+
+# ─────────────── SemySMS (SMS Command tab) ───────────────
+SEMYSMS_API   = "https://semysms.net/api/3/sms.php"
+# device id -> friendly name (dropdown shows the names, API gets the id)
+SEMYSMS_SIMS  = {
+    "355387": "Airtel 1",
+    "355386": "Airtel 2",
+    "350374": "Airtel Pulse",
+    "352969": "Voda Pulse",
+    "338826": "Voda Restrict 1",
+    "338825": "Voda Restrict 2",
+}
+SEMYSMS_SIM_NAMES = list(SEMYSMS_SIMS.values())
+_SIM_NAME_TO_ID   = {v: k for k, v in SEMYSMS_SIMS.items()}
+
+def sim_id_for_name(name):
+    """Friendly SIM name -> device id, or '' if unknown."""
+    return _SIM_NAME_TO_ID.get((name or "").strip(), "")
 
 # Ticket assignee directory  (display name -> FleetX assignee id)
 ASSIGNEE_DIRECTORY = {

@@ -22,6 +22,45 @@ def get_remote_meta():
     return globals().get("_REMOTE_META") or {}
 
 
+def get_shared_sensor_types():
+    """Custom sensor types shared across the team, stored under the Gist meta
+    key "_sensor_types" (a list). Empty list if none / offline."""
+    v = get_remote_meta().get("_sensor_types")
+    return [str(x) for x in v] if isinstance(v, list) else []
+
+
+def push_sensor_type(new_type, gh_token):
+    """Add one custom sensor type to the shared Gist list (idempotent).
+    Read-modify-write of only the _sensor_types meta key; user rules untouched.
+    Returns (ok, message)."""
+    import requests as _rq
+    from .config import GIST_API, GIST_FILENAME
+    new_type = (new_type or "").strip()
+    if not new_type:
+        return False, "Empty sensor type."
+    hdrs = {"Authorization": f"Bearer {gh_token}",
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "FleetXToolkit", "X-GitHub-Api-Version": "2022-11-28"}
+    try:
+        cur = _rq.get(GIST_API, headers=hdrs, timeout=20).json()
+        content = json.loads(cur["files"][GIST_FILENAME]["content"])
+        types = content.get("_sensor_types")
+        if not isinstance(types, list):
+            types = []
+        if new_type in types:
+            return True, "Already in the shared list."
+        types.append(new_type)
+        content["_sensor_types"] = types
+        body = {"files": {GIST_FILENAME: {"content": json.dumps(content, indent=2)}}}
+        r = _rq.patch(GIST_API, headers=hdrs, json=body, timeout=20)
+        if r.status_code in (200, 201):
+            globals().setdefault("_REMOTE_META", {})["_sensor_types"] = types
+            return True, f"Saved '{new_type}' to shared list."
+        return False, f"GitHub HTTP {r.status_code}: {r.text[:120]}"
+    except Exception as e:
+        return False, f"Error: {e}"
+
+
 def push_access_to_gist(access_map, gh_token):
     """Write access_map back to the Gist via GitHub API. Returns (ok, message)."""
     try:

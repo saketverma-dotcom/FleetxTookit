@@ -35,6 +35,23 @@ computes SHA256 → publishes the GitHub Release → patches the Gist meta.
 Every user sees "⬆ Update to v3.1" at their next login. One click, app
 restarts on the new version. Nothing else to do.
 
+## v3.2 features — operator notes
+
+- **SMS Command tab** (SemySMS): each user pastes the SemySMS API token once in
+  the tab; it is stored in Windows Credential Manager (`FleetX-Toolkit-SemySMS`),
+  never on disk. The tab is access-gated like any other — grant "SMS Command"
+  in the User Access tab. Per-row SIM is chosen by name from a fixed list of 6
+  SIMs; the tool maps name → device id internally.
+- **Sample Excel buttons** on SMS Command, Device Add, SIM Update, and
+  Vehicle-Device Map generate a correctly-headered template (with in-cell
+  dropdowns for SIM Name and Device Type). Headers are pinned to what the code
+  reads, so a downloaded sample always imports cleanly.
+- **Shared custom sensor types**: the SensorType tab's "+ Save to shared list"
+  button appends to a `_sensor_types` array in the access Gist (admins with a
+  GitHub token only). Every client picks it up at next login. Like the update
+  meta keys, `_sensor_types` is a `_`-prefixed key so it is never treated as a
+  user in the access matrix.
+
 ## Safety properties
 
 - **Version gate**: a tag that doesn't match `APP_VERSION` fails the build —

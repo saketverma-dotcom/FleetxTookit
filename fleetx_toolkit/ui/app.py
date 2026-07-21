@@ -30,10 +30,11 @@ from .tabs_admin import AdminTabsMixin
 from .tabs_commands import CommandTabsMixin
 from .tabs_devices import DeviceTabsMixin
 from .tabs_misc import MiscTabsMixin
+from .tabs_sms import SmsTabMixin
 
 
 class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
-                    AdminTabsMixin, tk.Tk):
+                    SmsTabMixin, AdminTabsMixin, tk.Tk):
     """Main window. Core plumbing lives here (login, run loop, settings);
     tab UIs come from the mixins."""
 
@@ -255,6 +256,7 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
             "SensorType":         self._tab_sensor_type,
             "Assets":             self._tab_assets,
             "Tickets":            self._tab_tickets,
+            "SMS Command":        self._tab_sms,
         }
         for tab_name in CONTROLLABLE_TABS:
             if tab_name in allowed and tab_name in tab_builders:
@@ -595,6 +597,23 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
             return
         save_settings({"delay_ms": d, "auto_retry": bool(self.auto_retry_var.get())})
         self.settings_status.config(text="Settings saved.", foreground="green")
+    def _download_sample(self, kind, default_name):
+        """Save a formatted sample .xlsx for the given tab kind."""
+        from ..sms import write_sample
+        path = filedialog.asksaveasfilename(
+            title="Save sample Excel", defaultextension=".xlsx",
+            initialfile=default_name,
+            filetypes=[("Excel", "*.xlsx")])
+        if not path:
+            return
+        try:
+            write_sample(kind, path)
+            self.log(f"  ✓ Sample template saved → {path}", "info")
+            messagebox.showinfo("Sample saved",
+                f"Template saved to:\n{path}\n\nFill it in and select it as your Excel input.")
+        except Exception as e:
+            self._ui_error("Sample", f"Could not write sample: {e}")
+
     def _open_logs(self):
         os.makedirs(LOGS_DIR, exist_ok=True)
         try:

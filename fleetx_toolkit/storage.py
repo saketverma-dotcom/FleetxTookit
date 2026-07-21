@@ -15,6 +15,7 @@ except Exception:
     _KEYRING_OK = False
 KEYRING_SERVICE    = "FleetX-Toolkit"
 KEYRING_GH_SERVICE = "FleetX-Toolkit-GitHub"
+KEYRING_SMS_SERVICE = "FleetX-Toolkit-SemySMS"
 
 # Seed command library (from Bruno collection)
 # NOTE: All /trigger/sendcommands calls are form-urlencoded (DYNAMIC_COMMAND_SETTING_TRIGGER)
@@ -144,3 +145,23 @@ def save_commands(cmds):
             json.dump(cmds, f, indent=2)
     except Exception:
         pass
+
+
+def load_sms_token():
+    """SemySMS API token from Windows Credential Manager (empty if unset)."""
+    if _KEYRING_OK:
+        try:
+            return keyring.get_password(KEYRING_SMS_SERVICE, "api") or ""
+        except Exception:
+            return ""
+    return ""
+
+def save_sms_token(token):
+    """Store the SemySMS token securely. Returns True on success."""
+    if not _KEYRING_OK:
+        return False
+    try:
+        keyring.set_password(KEYRING_SMS_SERVICE, "api", token)
+        return True
+    except Exception:
+        return False

@@ -37,13 +37,48 @@ class MiscTabsMixin:
         f = ttk.Frame(tab); f.pack(fill="x")
         ttk.Label(f, text="Sensor Type:").pack(side="left")
         self.sensor_var = tk.StringVar(value=SENSOR_PRESETS[0])
-        ttk.Combobox(f, textvariable=self.sensor_var, width=38,
-                     values=SENSOR_PRESETS).pack(side="left", padx=6)
-        ttk.Label(tab, text="(editable — type any custom sensorType)  |  Input = Vehicle IDs",
+        self.sensor_combo = ttk.Combobox(f, textvariable=self.sensor_var, width=38,
+                                         values=self._sensor_values())
+        self.sensor_combo.pack(side="left", padx=6)
+        ttk.Button(f, text="+ Save to shared list",
+                   command=self._save_sensor_type).pack(side="left", padx=4)
+        ttk.Label(tab, text="(editable — type a custom sensorType, then '+ Save' to share it with the team)"
+                            "  |  Input = Vehicle IDs",
                   foreground="gray").pack(anchor="w", pady=(2, 0))
         self.sens_src = self._input_source(tab, "Vehicle IDs")
         ttk.Button(tab, text="▶ Update SensorType",
                    command=lambda: self._run_thread(self._run_sensor)).pack(anchor="w", pady=4)
+    def _sensor_values(self):
+        """Built-in presets + team-shared custom types (deduped, order kept)."""
+        vals = list(SENSOR_PRESETS)
+        for t in access_control.get_shared_sensor_types():
+            if t not in vals:
+                vals.append(t)
+        return vals
+
+    def _save_sensor_type(self):
+        stype = self.sensor_var.get().strip()
+        if not stype:
+            self._ui_error("SensorType", "Type a sensor type first.")
+            return
+        if stype in self._sensor_values():
+            self._ui_error("SensorType", "That sensor type is already in the list.")
+            return
+        tok = load_gh_token()
+        if not tok:
+            self._ui_error("SensorType",
+                "Saving to the shared list needs a GitHub token.\n"
+                "Ask an admin to paste one in the User Access tab (admins only).")
+            return
+        def worker():
+            ok, msg = access_control.push_sensor_type(stype, tok)
+            def finish():
+                self.log(("  ✓ " if ok else "  ✗ ") + msg, "info" if ok else "err")
+                if ok:
+                    self.sensor_combo.config(values=self._sensor_values())
+            self.after(0, finish)
+        threading.Thread(target=worker, daemon=True).start()
+
     def _run_sensor(self):
         vids = self._get_ids(self.sens_src)
         if not vids: return

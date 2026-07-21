@@ -45,6 +45,9 @@ class DeviceTabsMixin:
                        filedialog.askopenfilename(filetypes=[("Excel", "*.xlsx")]))).grid(row=0, column=1)
         ttk.Button(f1, text="▶ Register",
                    command=lambda: self._run_thread(self._run_register)).grid(row=0, column=2, padx=8)
+        ttk.Button(f1, text="⬇ Sample Excel",
+                   command=lambda: self._download_sample("device_add", "device_add_sample.xlsx")
+                   ).grid(row=0, column=3, padx=4)
 
         # -- Camera 2CH quick add (IMEIs only) --
         f2 = ttk.LabelFrame(tab, text="Camera 2-Channel Quick Add (LCD40AI-2CH — IMEIs only, no SIM)",
@@ -135,6 +138,9 @@ class DeviceTabsMixin:
         ttk.Button(f, text="Browse...",
                    command=lambda: self.simu_path.set(
                        filedialog.askopenfilename(filetypes=[("Excel", "*.xlsx")]))).pack(side="left")
+        ttk.Button(f, text="⬇ Sample Excel",
+                   command=lambda: self._download_sample("sim_update", "sim_update_sample.xlsx")
+                   ).pack(side="left", padx=4)
         ttk.Button(tab, text="▶ Update SIM Mapping",
                    command=lambda: self._run_thread(self._run_sim_update)).pack(anchor="w", pady=8)
     def _run_sim_update(self):
@@ -160,8 +166,12 @@ class DeviceTabsMixin:
                             "or Excel with columns: device_id | vehicle_id",
                   foreground="gray").pack(anchor="w")
         self.map_src = self._input_source(tab, "Device–Vehicle Pairs")
-        ttk.Button(tab, text="▶ Map Devices to Vehicles",
-                   command=lambda: self._run_thread(self._run_vehicle_map)).pack(anchor="w", pady=4)
+        mrow = ttk.Frame(tab); mrow.pack(anchor="w", pady=4)
+        ttk.Button(mrow, text="▶ Map Devices to Vehicles",
+                   command=lambda: self._run_thread(self._run_vehicle_map)).pack(side="left")
+        ttk.Button(mrow, text="⬇ Sample Excel",
+                   command=lambda: self._download_sample("vehicle_map", "vehicle_map_sample.xlsx")
+                   ).pack(side="left", padx=6)
     def _run_vehicle_map(self):
         if self.map_src["mode"].get() == "excel":
             path = self.map_src["path"].get().strip()
