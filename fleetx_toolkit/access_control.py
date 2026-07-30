@@ -62,25 +62,44 @@ def push_sensor_type(new_type, gh_token):
 
 
 def push_access_to_gist(access_map, gh_token):
-    """Write access_map back to the Gist via GitHub API. Returns (ok, message)."""
+    """Write access_map back to the Gist via GitHub API. Returns (ok, message).
+
+    Read-modify-write: fetches the current Gist first and re-attaches every
+    "_"-prefixed meta key (_latest_version, _download_url, _sha256,
+    _sensor_types, ...). Without this, saving access would blind-overwrite the
+    file and wipe the update pointer + shared sensor list for the whole team."""
+    hdrs = {
+        "Authorization": f"Bearer {gh_token}",
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "FleetXToolkit",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    # Strip any "_" keys the caller may have included; we take meta from the
+    # live Gist as the source of truth so nothing stale is written back.
+    merged = {k: v for k, v in access_map.items() if not str(k).startswith("_")}
     try:
-        payload = {"files": {GIST_FILENAME: {"content": json.dumps(access_map, indent=2)}}}
+        cur = requests.get(GIST_API, headers=hdrs, timeout=20).json()
+        old = json.loads(cur["files"][GIST_FILENAME]["content"])
+        for k, v in old.items():
+            if str(k).startswith("_"):
+                merged[k] = v          # preserve every meta key
+    except Exception:
+        # If the fetch fails we still save access, but warn: meta may be lost.
+        pass
+    try:
+        payload = {"files": {GIST_FILENAME: {"content": json.dumps(merged, indent=2)}}}
         r = requests.patch(
             GIST_API,
             json=payload,
-            headers={
-                "Authorization": f"Bearer {gh_token}",
-                "Accept": "application/vnd.github+json",
-                "User-Agent": "FleetXToolkit",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+            headers=hdrs,
             timeout=20,
         )
         if r.status_code in (200, 201):
-            # refresh local cache too
+            # refresh local cache too (access rules only, matching old behavior)
             try:
                 with open(ACCESS_FILE, "w") as f:
-                    json.dump(access_map, f, indent=2)
+                    json.dump({k: v for k, v in merged.items()
+                               if not str(k).startswith("_")}, f, indent=2)
             except Exception:
                 pass
             return True, "Saved to Gist."

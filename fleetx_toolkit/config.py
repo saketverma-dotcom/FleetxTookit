@@ -6,12 +6,16 @@ import sys
 API_BASE    = "https://api.fleetx.io"
 APP_BASE    = "https://app.fleetx.io"
 LOGIN_URL   = f"{API_BASE}/api/v1/login"
+# Google One-Tap SSO (v3.4): reuse FleetX's own OAuth client + exchange endpoint
+GOOGLE_LOGIN_URL   = f"{API_BASE}/api/v2/login/google-one-tap"
+GOOGLE_CLIENT_ID   = "135264764063-hcs8ri1mm7p7bq0p69krvlntlpkcq4re.apps.googleusercontent.com"
+GOOGLE_HOSTED_DOMAIN = "fleetx.io"
 CLIENT_ID   = "fleetxweb"
 DELAY_MS    = 1250
 TOKEN_PARAM = "udbhav"
 MOBILE_PARAM = "5754236272120"
 
-APP_VERSION = "3.3.1"
+APP_VERSION = "3.4"
 
 CRED_FILE     = os.path.join(os.path.expanduser("~"), ".fleetx_toolkit_creds.json")
 SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".fleetx_toolkit_settings.json")

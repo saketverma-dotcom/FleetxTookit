@@ -167,6 +167,76 @@ class TestSmsRowsExcel:
         assert rows == [("888", "ok", "355387")]
 
 
+class TestAccessSavePreservesMeta:
+    """Regression: saving the access map must NOT wipe _-prefixed meta keys
+    (the update pointer + shared sensor list) for the whole team."""
+
+    def test_meta_survives_access_save(self, monkeypatch):
+        import json as _json
+        from fleetx_toolkit import access_control as acmod
+
+        live = {
+            "old@fleetx.io": ["Tickets"],
+            "_latest_version": "3.3.1",
+            "_download_url": "https://x/e.exe",
+            "_sha256": "abc",
+            "_sensor_types": ["CUSTOM_A"],
+        }
+        captured = {}
+
+        class G:
+            status_code = 200
+            def json(self):
+                return {"files": {"fleetx_access.json":
+                                  {"content": _json.dumps(live)}}}
+
+        class P:
+            status_code = 200
+
+        monkeypatch.setattr(acmod.requests, "get",
+                            lambda *a, **k: G())
+        monkeypatch.setattr(acmod.requests, "patch",
+                            lambda *a, **k: (captured.update(body=k["json"]) or P()))
+        monkeypatch.setattr(acmod, "ACCESS_FILE", "/tmp/_acc_test.json")
+
+        ok, _ = acmod.push_access_to_gist(
+            {"new@fleetx.io": ["SMS Command"]}, "tok")
+        written = _json.loads(
+            captured["body"]["files"]["fleetx_access.json"]["content"])
+
+        assert ok
+        assert written["new@fleetx.io"] == ["SMS Command"]
+        assert written["_latest_version"] == "3.3.1"
+        assert written["_download_url"] == "https://x/e.exe"
+        assert written["_sha256"] == "abc"
+        assert written["_sensor_types"] == ["CUSTOM_A"]
+
+    def test_caller_meta_keys_ignored_in_favor_of_live(self, monkeypatch):
+        # if the caller passes a stale _latest_version, the live Gist wins
+        import json as _json
+        from fleetx_toolkit import access_control as acmod
+        live = {"_latest_version": "9.9.9"}
+        captured = {}
+
+        class G:
+            status_code = 200
+            def json(self):
+                return {"files": {"fleetx_access.json":
+                                  {"content": _json.dumps(live)}}}
+
+        monkeypatch.setattr(acmod.requests, "get", lambda *a, **k: G())
+        monkeypatch.setattr(acmod.requests, "patch",
+                            lambda *a, **k: (captured.update(body=k["json"])
+                                             or type("P", (), {"status_code": 200})()))
+        monkeypatch.setattr(acmod, "ACCESS_FILE", "/tmp/_acc_test2.json")
+
+        acmod.push_access_to_gist(
+            {"u@fleetx.io": [], "_latest_version": "0.0.1"}, "tok")
+        written = _json.loads(
+            captured["body"]["files"]["fleetx_access.json"]["content"])
+        assert written["_latest_version"] == "9.9.9"   # live, not caller's stale
+
+
 class TestDelayOverride:
     """SMS tab sets a per-run delay override that _current_delay honors."""
 

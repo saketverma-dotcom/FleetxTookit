@@ -71,17 +71,21 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         ttk.Button(self.login_frame, text="Login", command=self.do_login).grid(
             row=4, column=0, columnspan=2, pady=(10, 6))
 
+        ttk.Button(self.login_frame, text="Sign in with Google",
+                   command=self.do_google_login).grid(
+            row=5, column=0, columnspan=2, pady=(0, 6))
+
         ttk.Separator(self.login_frame, orient="horizontal").grid(
-            row=5, column=0, columnspan=2, sticky="ew", pady=10)
+            row=6, column=0, columnspan=2, sticky="ew", pady=10)
         ttk.Label(self.login_frame, text="Or paste Bearer token directly:").grid(
-            row=6, column=0, columnspan=2)
+            row=7, column=0, columnspan=2)
         self.token_var = tk.StringVar()
         ttk.Entry(self.login_frame, textvariable=self.token_var, width=48).grid(
-            row=7, column=0, columnspan=2, pady=4)
+            row=8, column=0, columnspan=2, pady=4)
         ttk.Button(self.login_frame, text="Use Token", command=self.use_manual_token).grid(
-            row=8, column=0, columnspan=2, pady=6)
+            row=9, column=0, columnspan=2, pady=6)
         self.login_status = ttk.Label(self.login_frame, text="", foreground="red")
-        self.login_status.grid(row=9, column=0, columnspan=2, pady=6)
+        self.login_status.grid(row=10, column=0, columnspan=2, pady=6)
 
         if saved_email and saved_pass:
             self.after(400, self.do_login)
@@ -195,6 +199,54 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         except Exception as e:
             self._logging_in = False
             self._login_status_safe(f"Login error: {e}. Paste token manually.")
+    def do_google_login(self):
+        # Capture the Google ID token via a local One-Tap page, exchange it at
+        # FleetX for a Bearer token, then reuse the normal login finish path.
+        if getattr(self, "_logging_in", False):
+            return
+        self._logging_in = True
+        self.login_status.config(
+            text="Opening Google sign-in in your browser…", foreground="black")
+        threading.Thread(target=self._google_worker, daemon=True).start()
+
+    def _google_worker(self):
+        from .. import google_auth as ga
+        id_token, err = ga.capture_google_token()
+        if err or not id_token:
+            self._logging_in = False
+            self._login_status_safe(err or "Google sign-in was cancelled.")
+            return
+        claims = ga.decode_id_token(id_token)
+        ok, reason = ga.validate_claims(claims)
+        if not ok:
+            self._logging_in = False
+            self._login_status_safe(reason)
+            return
+        email = ga.google_email(claims)
+        self._login_status_safe("Exchanging sign-in with FleetX…", "black")
+        bearer, xerr = ga.exchange_google_token(id_token)
+        if not bearer:
+            self._logging_in = False
+            self._login_status_safe(
+                (xerr or "FleetX login failed.") + " You can paste a token manually below.")
+            return
+        snapshot = load_access()
+
+        def finish():
+            self._logging_in = False
+            access_control.set_snapshot(snapshot)
+            if not is_authorized(email):
+                self.login_status.config(
+                    text="Access denied: this email is not authorized for this tool.\n"
+                         "Contact saket.verma@fleetx.io for access.",
+                    foreground="red")
+                return
+            self.token = bearer
+            state.user_email = email
+            self.is_admin_user = is_admin(email)
+            self._enter_main()
+        self.after(0, finish)
+
     def use_manual_token(self):
         tok = self.token_var.get().strip().replace("Bearer ", "")
         if not tok:
