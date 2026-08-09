@@ -55,10 +55,25 @@ jobs:
       - name: Install dependencies
         run: pip install requests openpyxl keyring pyinstaller
 
+      - name: Generate exe version info
+        shell: python
+        run: |
+          import re
+          ver = open("fleetx_toolkit/config.py", encoding="utf-8").read()
+          v = re.search(r'APP_VERSION\s*=\s*"([^"]+)"', ver).group(1)
+          nums = [int(x) for x in re.findall(r"\d+", v)][:4]
+          while len(nums) < 4:
+              nums.append(0)
+          tmpl = open("build/version_info.txt.tmpl", encoding="utf-8").read()
+          out = tmpl.replace("{VER_TUPLE}", str(tuple(nums))).replace("{VER_STR}", v)
+          open("build/version_info.txt", "w", encoding="utf-8").write(out)
+          print("version_info.txt generated for", v)
+
       - name: Build onefile exe
         run: >
           pyinstaller --onefile --noconsole
           --hidden-import keyring.backends.Windows
+          --version-file build/version_info.txt
           --name FleetX_Toolkit
           FleetX_Toolkit.py
 

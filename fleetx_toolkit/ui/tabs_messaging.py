@@ -22,6 +22,7 @@ class MessagingTabMixin:
         self._msg_threads = {}          # phone -> [messages]
         self._msg_last_id = 0           # inbox high-water mark for current SIM
         self._msg_active_phone = None
+        self._msg_pending_status = {}   # sms_id -> phone, for outbox status polling
         self._msg_polling = False
         self._msg_device_id = sim_id_for_name(MESSAGING_SIM_NAMES[0])
 
@@ -74,6 +75,7 @@ class MessagingTabMixin:
         self._msg_threads = {}
         self._msg_last_id = 0
         self._msg_active_phone = None
+        self._msg_pending_status = {}
         self.msg_conv_list.delete(0, "end")
         self._msg_render_thread()
         if self._msg_polling:
@@ -113,6 +115,18 @@ class MessagingTabMixin:
                 self._msg_last_id = M.max_id(msgs, self._msg_last_id)
                 if fresh:
                     self.after(0, lambda f=fresh: self._msg_ingest(f))
+            # poll delivery status for still-pending sent messages
+            if device == self._msg_device_id and self._msg_pending_status:
+                ids = list(self._msg_pending_status.keys())
+                ourl, oparams = M.build_outbox_request(token, device, ids)
+                try:
+                    ro = requests.get(ourl, params=oparams, timeout=20)
+                    statuses = M.parse_outbox_status(ro.json())
+                except Exception:
+                    statuses = {}
+                if statuses:
+                    self.after(0, lambda s=statuses: self._msg_apply_status(s))
+
             for _ in range(MESSAGING_POLL_SECONDS * 2):
                 if not self._msg_polling:
                     break
@@ -122,6 +136,22 @@ class MessagingTabMixin:
         M.add_messages(self._msg_threads, fresh, "in")
         self._msg_refresh_conv_list()
         if self._msg_active_phone in self._msg_threads:
+            self._msg_render_thread()
+
+    def _msg_apply_status(self, statuses):
+        """Update outgoing message status from an outbox poll; stop tracking
+        ones that reached a terminal state (delivered/failed/cancelled)."""
+        changed = False
+        for phone, msgs in self._msg_threads.items():
+            for msg in msgs:
+                if msg.get("dir") == "out" and msg.get("id") in statuses:
+                    new = statuses[msg["id"]]
+                    if msg.get("status") != new:
+                        msg["status"] = new
+                        changed = True
+                    if new in M.TERMINAL_STATUSES:
+                        self._msg_pending_status.pop(msg["id"], None)
+        if changed and self._msg_active_phone:
             self._msg_render_thread()
 
     # ── conversation list + thread view ──
@@ -155,10 +185,31 @@ class MessagingTabMixin:
             return
         self.msg_thread_lbl.config(text=f"{phone}   ({self.msg_sim.get()})")
         for m in M.conversation(self._msg_threads, phone):
-            who = "←" if m["dir"] == "in" else "→"
-            self.msg_thread_box.insert("end", f"{who} {m['msg']}\n", m["dir"])
+            t = self._msg_short_time(m.get("date", ""))
+            if m["dir"] == "in":
+                line = f"← {m['msg']}"
+                if t:
+                    line += f"   [{t}]"
+            else:
+                badge = M.STATUS_LABEL.get(m.get("status", M.SENT_PENDING), "")
+                line = f"→ {m['msg']}"
+                meta = "   ".join(x for x in (t, badge) if x)
+                if meta:
+                    line += f"   [{meta}]"
+            self.msg_thread_box.insert("end", line + "\n", m["dir"])
         self.msg_thread_box.see("end")
         self.msg_thread_box.config(state="disabled")
+
+    @staticmethod
+    def _msg_short_time(date_str):
+        """'2026-01-09 13:05:12.657' -> '13:05'. Best-effort, blank if unknown."""
+        s = str(date_str or "").strip()
+        if " " in s:
+            clock = s.split(" ", 1)[1]
+            parts = clock.split(":")
+            if len(parts) >= 2:
+                return f"{parts[0]}:{parts[1]}"
+        return ""
 
     # ── reply ──
 
@@ -177,14 +228,24 @@ class MessagingTabMixin:
         def worker():
             url, data = M.build_reply_request(token, device, phone, text)
             ok = False
+            sms_id = 0
             try:
                 r = requests.post(url, data=data, timeout=30)
-                ok = str((r.json() or {}).get("code")) == "0"
+                body = r.json() or {}
+                ok = str(body.get("code")) == "0"
+                sms_id = int(body.get("id") or 0)
             except Exception:
                 ok = False
+            import datetime as _dt
+            now = f"{_dt.datetime.now():%Y-%m-%d %H:%M:%S}"
+
             def finish():
-                M.add_messages(self._msg_threads,
-                               [{"id": 0, "phone": phone, "msg": text, "date": ""}], "out")
+                entry = {"id": sms_id, "phone": phone, "msg": text,
+                         "date": now, "status": M.SENT_SENT if ok else M.SENT_FAILED}
+                M.add_messages(self._msg_threads, [entry], "out")
+                # track for delivery-status polling if we got a real id
+                if ok and sms_id:
+                    self._msg_pending_status[sms_id] = phone
                 self._msg_render_thread()
                 self._msg_refresh_conv_list()
                 if not ok:

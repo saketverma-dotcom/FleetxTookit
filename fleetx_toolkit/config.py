@@ -15,7 +15,7 @@ DELAY_MS    = 1250
 TOKEN_PARAM = "udbhav"
 MOBILE_PARAM = "5754236272120"
 
-APP_VERSION = "3.5"
+APP_VERSION = "3.5.1"
 
 CRED_FILE     = os.path.join(os.path.expanduser("~"), ".fleetx_toolkit_creds.json")
 SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".fleetx_toolkit_settings.json")
@@ -63,6 +63,7 @@ SIM_PROVIDERS  = ["ONOMONDO", "TATA", "AERIS", "AIRTEL", "VODAFONE", "BSNL", "JI
 # ─────────────── SemySMS (SMS Command tab) ───────────────
 SEMYSMS_API   = "https://semysms.net/api/3/sms.php"
 SEMYSMS_INBOX_API = "https://semysms.net/api/3/inbox_sms.php"   # incoming SMS list
+SEMYSMS_OUTBOX_API = "https://semysms.net/api/3/outbox_sms.php" # outgoing + status
 # Messaging tab (v3.5) is restricted to these two SIMs only:
 MESSAGING_SIMS = {"350374": "Airtel Pulse", "352969": "Voda Pulse"}
 MESSAGING_SIM_NAMES = list(MESSAGING_SIMS.values())

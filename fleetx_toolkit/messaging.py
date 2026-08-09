@@ -5,7 +5,7 @@ Realtime is polling: SemySMS has no push to a firewalled desktop, so we call
 inbox_sms.php every few seconds, using the highest id we've seen as a high-water
 mark so each poll only surfaces genuinely new messages.
 """
-from .config import SEMYSMS_API, SEMYSMS_INBOX_API
+from .config import SEMYSMS_API, SEMYSMS_INBOX_API, SEMYSMS_OUTBOX_API
 
 
 # ─────────────── request builders ───────────────
@@ -86,17 +86,76 @@ def add_messages(threads, messages, direction="in"):
 
 
 def thread_order(threads):
-    """Phone numbers ordered by most-recent activity first (by max id seen,
-    falling back to insertion). Drives the conversation list."""
+    """Phone numbers ordered by most-recent activity first (by latest
+    timestamp, falling back to id). Drives the conversation list."""
     def key(phone):
         msgs = threads[phone]
-        return max((m.get("id", 0) for m in msgs), default=0)
+        return max((_ts_key(m) for m in msgs), default=("", 0))
     return sorted(threads.keys(), key=key, reverse=True)
 
 
 def conversation(threads, phone):
-    """Ordered message list for one number: incoming by id, outgoing appended
-    in send order, interleaved by best-effort (id then arrival)."""
-    msgs = threads.get(phone, [])
-    # incoming have real ids; outgoing may have id=0 -> keep stable order
-    return sorted(msgs, key=lambda m: (m.get("id", 0) == 0, m.get("id", 0)))
+    """Ordered message list for one number, sorted by real timestamp so
+    incoming and outgoing interleave in true chronological order."""
+    return sorted(threads.get(phone, []), key=_ts_key)
+
+
+# ─────────────── outbox / delivery status ───────────────
+
+SENT_PENDING, SENT_SENT, SENT_DELIVERED = "pending", "sent", "delivered"
+SENT_FAILED, SENT_CANCELLED = "failed", "cancelled"
+
+STATUS_LABEL = {
+    SENT_PENDING:   "\u23f3 Pending",
+    SENT_SENT:      "\u2713 Sent",
+    SENT_DELIVERED: "\u2713\u2713 Delivered",
+    SENT_FAILED:    "\u2717 Failed",
+    SENT_CANCELLED: "\u2298 Cancelled",
+}
+
+TERMINAL_STATUSES = {SENT_DELIVERED, SENT_FAILED, SENT_CANCELLED}
+
+
+def build_outbox_request(token, device_id, list_id):
+    """(url, params) for outbox_sms.php filtered to specific SMS ids."""
+    params = {"token": token, "device": str(device_id)}
+    if list_id:
+        params["list_id"] = ",".join(str(i) for i in list_id)
+    return SEMYSMS_OUTBOX_API, params
+
+
+def status_from_row(row):
+    """Map an outbox row's flags to one of the SENT_* states."""
+    def flag(k):
+        try:
+            return int(row.get(k, 0) or 0) == 1
+        except (TypeError, ValueError):
+            return False
+    if flag("is_error") or flag("is_error_send"):
+        return SENT_FAILED
+    if flag("is_cancel"):
+        return SENT_CANCELLED
+    if flag("is_delivered"):
+        return SENT_DELIVERED
+    if flag("is_send"):
+        return SENT_SENT
+    return SENT_PENDING
+
+
+def parse_outbox_status(resp_json):
+    """{sms_id(int): status} from an outbox_sms.php response."""
+    out = {}
+    if not isinstance(resp_json, dict):
+        return out
+    for row in resp_json.get("data") or []:
+        try:
+            out[int(row.get("id"))] = status_from_row(row)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _ts_key(m):
+    """Sort key: real timestamp string if present, else empty (sorts first).
+    ISO-ish 'YYYY-MM-DD HH:MM:SS...' strings sort correctly lexicographically."""
+    return (m.get("date") or "", m.get("id", 0))
