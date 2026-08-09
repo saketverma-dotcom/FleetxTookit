@@ -36,7 +36,6 @@ class MessagingTabMixin:
         self._msg_device_id = sim_id_for_name(MESSAGING_SIM_NAMES[0])
         self._msg_pending_status = {}
         self._msg_unread = set()          # phones with unread incoming
-        self._msg_filter = "all"          # all | unread
         self._msg_query = ""
         self._msg_row_index = []          # row order -> phone, for click mapping
 
@@ -75,16 +74,13 @@ class MessagingTabMixin:
         # sidebar
         side = tk.Frame(body, bg=self.C_SIDEBAR, width=170)
         side.pack(side="left", fill="y"); side.pack_propagate(False)
-        self._msg_nav_btns = {}
-        for key, label, icon in [("all", "Conversations", "▤"),
-                                  ("unread", "Unread", "✉")]:
-            b = tk.Label(side, text=f"  {icon}  {label}", bg=self.C_SIDEBAR,
-                         fg=self.C_TEXT, font=("Segoe UI", 10), anchor="w",
-                         padx=12, pady=10, cursor="hand2")
-            b.pack(fill="x", pady=(6, 0), padx=6)
-            b.bind("<Button-1>", lambda e, k=key: self._msg_set_filter(k))
-            self._msg_nav_btns[key] = b
-        self._msg_highlight_nav()
+        conv_lbl = tk.Label(side, text="  ▤  Conversations", bg=self.C_SEL,
+                            fg=self.C_TEXT, font=("Segoe UI", 10), anchor="w",
+                            padx=12, pady=10)
+        conv_lbl.pack(fill="x", pady=(6, 0), padx=6)
+        tk.Button(side, text="✚  New message", relief="flat", bg=self.C_ACCENT,
+                  fg="white", bd=0, anchor="w", padx=12, pady=8, cursor="hand2",
+                  command=self._msg_new_message).pack(fill="x", pady=(10, 0), padx=6)
 
         # conversation list (scrollable)
         listwrap = tk.Frame(body, bg=self.C_BG, width=300)
@@ -93,12 +89,20 @@ class MessagingTabMixin:
                                     width=300)
         sb = ttk.Scrollbar(listwrap, orient="vertical", command=self.msg_canvas.yview)
         self.msg_rows = tk.Frame(self.msg_canvas, bg=self.C_BG)
+        self._msg_rows_window = self.msg_canvas.create_window(
+            (0, 0), window=self.msg_rows, anchor="nw", width=300)
         self.msg_rows.bind("<Configure>", lambda e: self.msg_canvas.configure(
             scrollregion=self.msg_canvas.bbox("all")))
-        self.msg_canvas.create_window((0, 0), window=self.msg_rows, anchor="nw", width=300)
         self.msg_canvas.configure(yscrollcommand=sb.set)
         self.msg_canvas.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
+        # mouse-wheel scrolling (bind on enter so it doesn't hijack the thread box)
+        def _wheel(ev):
+            self.msg_canvas.yview_scroll(int(-1 * (ev.delta / 120)), "units")
+        self.msg_canvas.bind("<Enter>",
+                             lambda e: self.msg_canvas.bind_all("<MouseWheel>", _wheel))
+        self.msg_canvas.bind("<Leave>",
+                             lambda e: self.msg_canvas.unbind_all("<MouseWheel>"))
 
         tk.Frame(body, bg=self.C_DIVIDER, width=1).pack(side="left", fill="y")
 
@@ -130,23 +134,9 @@ class MessagingTabMixin:
                   bd=0, padx=16, pady=4, cursor="hand2",
                   command=self._msg_send_reply).pack(side="left")
 
-        # floating compose button
-        fab = tk.Button(tab, text="✚", relief="flat", bg=self.C_ACCENT, fg="white",
-                        bd=0, font=("Segoe UI", 16, "bold"), width=3, height=1,
-                        cursor="hand2", command=self._msg_new_message)
-        fab.place(relx=1.0, rely=1.0, x=-24, y=-24, anchor="se")
-
-    def _msg_set_filter(self, key):
-        self._msg_filter = key
-        self._msg_highlight_nav()
-        self._msg_refresh_conv_list()
-
-    def _msg_highlight_nav(self):
-        for k, b in self._msg_nav_btns.items():
-            b.config(bg=self.C_SEL if k == self._msg_filter else self.C_SIDEBAR)
-
     def _msg_apply_filter(self):
         self._msg_query = self.msg_search.get()
+        self._msg_force_redraw()
         self._msg_refresh_conv_list()
 
     def _msg_new_message(self):
@@ -212,6 +202,7 @@ class MessagingTabMixin:
         self._msg_active_phone = None
         self._msg_pending_status = {}
         self._msg_unread = set()
+        self._msg_force_redraw()
         self._msg_refresh_conv_list()
         self._msg_render_thread()
         if self._msg_polling:
@@ -297,14 +288,28 @@ class MessagingTabMixin:
     # ── conversation list + thread view ──
 
     def _msg_refresh_conv_list(self):
-        """Draw Pulse-style rows: avatar circle, number, preview, time, unread dot."""
+        """Draw Pulse-style rows only when the visible set/state changed.
+        PERF FIX: previously this destroyed and recreated every row on every
+        7s poll, which is what made the tool lag with many conversations. Now
+        it computes a lightweight signature and skips the redraw when nothing
+        relevant changed."""
+        phones = M.filter_threads(self._msg_threads, self._msg_query, None)
+        # signature: order + unread + selection + last preview/time per row
+        sig = tuple((p, p in self._msg_unread, p == self._msg_active_phone,
+                     M.last_time(self._msg_threads, p),
+                     M.preview_text(self._msg_threads, p)) for p in phones)
+        if sig == getattr(self, "_msg_last_sig", None):
+            return
+        self._msg_last_sig = sig
         for w in self.msg_rows.winfo_children():
             w.destroy()
-        unread = self._msg_unread if self._msg_filter == "unread" else None
-        phones = M.filter_threads(self._msg_threads, self._msg_query, unread)
         self._msg_row_index = phones
         for phone in phones:
             self._msg_draw_row(phone)
+        self.msg_canvas.yview_moveto(0.0) if not self._msg_active_phone else None
+
+    def _msg_force_redraw(self):
+        self._msg_last_sig = None
 
     def _msg_draw_row(self, phone):
         is_unread = phone in self._msg_unread
@@ -312,7 +317,6 @@ class MessagingTabMixin:
         bg = self.C_SEL if is_sel else self.C_BG
         row = tk.Frame(self.msg_rows, bg=bg, cursor="hand2")
         row.pack(fill="x")
-        row.bind("<Button-1>", lambda e, p=phone: self._msg_open_phone(p))
 
         # avatar circle (canvas)
         av = tk.Canvas(row, width=44, height=44, bg=bg, highlightthickness=0)
@@ -321,7 +325,6 @@ class MessagingTabMixin:
         av.create_oval(4, 4, 40, 40, fill=col, outline=col)
         av.create_text(22, 22, text=M.avatar_initials(phone), fill="white",
                        font=("Segoe UI", 10, "bold"))
-        av.bind("<Button-1>", lambda e, p=phone: self._msg_open_phone(p))
 
         mid = tk.Frame(row, bg=bg); mid.pack(side="left", fill="x", expand=True, pady=6)
         top = tk.Frame(mid, bg=bg); top.pack(fill="x")
@@ -335,15 +338,26 @@ class MessagingTabMixin:
         tk.Label(mid, text=M.preview_text(self._msg_threads, phone), bg=bg,
                  fg=self.C_MUTED, anchor="w", font=("Segoe UI", 9),
                  justify="left").pack(fill="x")
-        for w in (mid, top):
-            w.bind("<Button-1>", lambda e, p=phone: self._msg_open_phone(p))
+
+        # FIX: bind the click on the row AND every descendant, so clicking any
+        # part (number, preview, avatar, blank space) always opens the thread.
+        handler = lambda e, p=phone: self._msg_open_phone(p)
+        row.bind("<Button-1>", handler)
+        for child in (av, mid, top, *mid.winfo_children(), *top.winfo_children()):
+            child.bind("<Button-1>", handler)
+
         tk.Frame(self.msg_rows, bg=self.C_DIVIDER, height=1).pack(fill="x")
 
     def _msg_open_phone(self, phone):
         self._msg_active_phone = phone
         self._msg_unread.discard(phone)      # opening marks read
-        self._msg_refresh_conv_list()
+        # render the thread immediately (cheap, feels responsive)
         self._msg_render_thread()
+        # FIX: defer the conversation-list rebuild to after this click event
+        # finishes — rebuilding destroys the very row we're handling the click
+        # on, which was causing missed clicks / hangs.
+        self._msg_force_redraw()
+        self.after_idle(self._msg_refresh_conv_list)
 
     def _msg_render_thread(self):
         self.msg_thread_box.config(state="normal")
