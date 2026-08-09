@@ -15,7 +15,7 @@ DELAY_MS    = 1250
 TOKEN_PARAM = "udbhav"
 MOBILE_PARAM = "5754236272120"
 
-APP_VERSION = "3.4"
+APP_VERSION = "3.5"
 
 CRED_FILE     = os.path.join(os.path.expanduser("~"), ".fleetx_toolkit_creds.json")
 SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".fleetx_toolkit_settings.json")
@@ -29,7 +29,7 @@ ALLOWED_DOMAIN = "@fleetx.io"                        # only fleetx emails allowe
 CONTROLLABLE_TABS = [
     "Device Add", "SIM Inventory", "SIM Update", "Vehicle-Device Map",
     "Send Command", "Sequential 2-Phase", "SensorType", "Assets",
-    "Tickets", "SMS Command",
+    "Tickets", "SMS Command", "Messaging",
 ]
 
 # Access file / logs sit NEXT TO the exe (or the entry script in dev mode).
@@ -62,6 +62,11 @@ SIM_PROVIDERS  = ["ONOMONDO", "TATA", "AERIS", "AIRTEL", "VODAFONE", "BSNL", "JI
 
 # ─────────────── SemySMS (SMS Command tab) ───────────────
 SEMYSMS_API   = "https://semysms.net/api/3/sms.php"
+SEMYSMS_INBOX_API = "https://semysms.net/api/3/inbox_sms.php"   # incoming SMS list
+# Messaging tab (v3.5) is restricted to these two SIMs only:
+MESSAGING_SIMS = {"350374": "Airtel Pulse", "352969": "Voda Pulse"}
+MESSAGING_SIM_NAMES = list(MESSAGING_SIMS.values())
+MESSAGING_POLL_SECONDS = 7
 # device id -> friendly name (dropdown shows the names, API gets the id)
 SEMYSMS_SIMS  = {
     "355387": "Airtel 1",

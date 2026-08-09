@@ -31,10 +31,11 @@ from .tabs_commands import CommandTabsMixin
 from .tabs_devices import DeviceTabsMixin
 from .tabs_misc import MiscTabsMixin
 from .tabs_sms import SmsTabMixin
+from .tabs_messaging import MessagingTabMixin
 
 
 class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
-                    SmsTabMixin, AdminTabsMixin, tk.Tk):
+                    SmsTabMixin, MessagingTabMixin, AdminTabsMixin, tk.Tk):
     """Main window. Core plumbing lives here (login, run loop, settings);
     tab UIs come from the mixins."""
 
@@ -309,6 +310,7 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
             "Assets":             self._tab_assets,
             "Tickets":            self._tab_tickets,
             "SMS Command":        self._tab_sms,
+            "Messaging":          self._tab_messaging,
         }
         for tab_name in CONTROLLABLE_TABS:
             if tab_name in allowed and tab_name in tab_builders:
