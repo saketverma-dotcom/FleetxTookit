@@ -14,62 +14,140 @@ class MessagingTabMixin:
     """Two-way SMS console (v3.5). Polls one selected SIM's inbox and lets you
     reply in-thread from that same SIM. Restricted to Airtel Pulse / Voda Pulse."""
 
+    # ── Pulse-inspired palette ──
+    C_BG      = "#ffffff"
+    C_SIDEBAR = "#fafafa"
+    C_SEL     = "#e8eaf6"
+    C_DIVIDER = "#eeeeee"
+    C_MUTED   = "#9e9e9e"
+    C_TEXT    = "#212121"
+    C_ACCENT  = "#ff5722"
+    C_UNREAD  = "#2196f3"
+
     def _tab_messaging(self):
-        tab = ttk.Frame(self.nb, padding=8)
+        tab = tk.Frame(self.nb, bg=self.C_BG)
         self.nb.add(tab, text="Messaging")
 
         # runtime state
-        self._msg_threads = {}          # phone -> [messages]
-        self._msg_last_id = 0           # inbox high-water mark for current SIM
+        self._msg_threads = {}
+        self._msg_last_id = 0
         self._msg_active_phone = None
-        self._msg_pending_status = {}   # sms_id -> phone, for outbox status polling
         self._msg_polling = False
         self._msg_device_id = sim_id_for_name(MESSAGING_SIM_NAMES[0])
+        self._msg_pending_status = {}
+        self._msg_unread = set()          # phones with unread incoming
+        self._msg_filter = "all"          # all | unread
+        self._msg_query = ""
+        self._msg_row_index = []          # row order -> phone, for click mapping
 
-        # ── top bar: SIM picker + start/stop ──
-        top = ttk.Frame(tab); top.pack(fill="x")
-        ttk.Label(top, text="SIM:").pack(side="left")
+        # ── top bar ──
+        topbar = tk.Frame(tab, bg=self.C_BG, height=48)
+        topbar.pack(fill="x"); topbar.pack_propagate(False)
+        tk.Label(topbar, text="  Messaging", bg=self.C_BG, fg=self.C_TEXT,
+                 font=("Segoe UI", 13, "bold")).pack(side="left")
         self.msg_sim = tk.StringVar(value=MESSAGING_SIM_NAMES[0])
-        cb = ttk.Combobox(top, textvariable=self.msg_sim, width=16, state="readonly",
-                          values=MESSAGING_SIM_NAMES)
-        cb.pack(side="left", padx=6)
-        cb.bind("<<ComboboxSelected>>", lambda e: self._msg_switch_sim())
-        self.msg_toggle_btn = ttk.Button(top, text="▶ Start", command=self._msg_toggle)
-        self.msg_toggle_btn.pack(side="left", padx=6)
-        ttk.Button(top, text="✚ New message", command=self._msg_new_message).pack(side="left", padx=2)
-        self.msg_status = ttk.Label(top, text="Stopped", foreground="gray")
+        sim_cb = ttk.Combobox(topbar, textvariable=self.msg_sim, width=14,
+                              state="readonly", values=MESSAGING_SIM_NAMES)
+        sim_cb.pack(side="left", padx=10)
+        sim_cb.bind("<<ComboboxSelected>>", lambda e: self._msg_switch_sim())
+        self.msg_toggle_btn = tk.Button(topbar, text="▶ Start", relief="flat",
+                                        bg=self.C_UNREAD, fg="white", bd=0,
+                                        padx=12, pady=4, cursor="hand2",
+                                        command=self._msg_toggle)
+        self.msg_toggle_btn.pack(side="left", padx=4)
+        self.msg_status = tk.Label(topbar, text="Stopped", bg=self.C_BG,
+                                   fg=self.C_MUTED, font=("Segoe UI", 9))
         self.msg_status.pack(side="left", padx=8)
-        ttk.Label(top, text=f"(polls every {MESSAGING_POLL_SECONDS}s — one SIM at a time)",
-                  foreground="gray").pack(side="left")
+        # search box
+        self.msg_search = tk.StringVar()
+        se = tk.Entry(topbar, textvariable=self.msg_search, width=22,
+                      relief="flat", bg="#f1f1f1")
+        se.pack(side="right", padx=10, ipady=3)
+        se.insert(0, ""); 
+        self.msg_search.trace_add("write", lambda *a: self._msg_apply_filter())
 
-        # ── split: conversations | thread ──
-        body = ttk.Frame(tab); body.pack(fill="both", expand=True, pady=(8, 0))
+        tk.Frame(tab, bg=self.C_DIVIDER, height=1).pack(fill="x")
 
-        left = ttk.LabelFrame(body, text="Conversations", padding=4)
-        left.pack(side="left", fill="y")
-        self.msg_conv_list = tk.Listbox(left, width=24, height=20,
-                                        exportselection=False)
-        self.msg_conv_list.pack(fill="y", expand=True)
-        self.msg_conv_list.bind("<<ListboxSelect>>", lambda e: self._msg_open_selected())
+        # ── body: sidebar | conversation list | thread ──
+        body = tk.Frame(tab, bg=self.C_BG)
+        body.pack(fill="both", expand=True)
 
-        right = ttk.Frame(body); right.pack(side="left", fill="both", expand=True, padx=(8, 0))
-        self.msg_thread_lbl = ttk.Label(right, text="Select a conversation",
-                                        font=("Segoe UI", 10, "bold"))
-        self.msg_thread_lbl.pack(anchor="w")
-        self.msg_thread_box = tk.Text(right, height=18, width=54, state="disabled",
-                                      wrap="word")
-        self.msg_thread_box.pack(fill="both", expand=True, pady=4)
-        self.msg_thread_box.tag_config("in", foreground="#0a5", spacing3=4)
-        self.msg_thread_box.tag_config("out", foreground="#06c", justify="right", spacing3=4)
+        # sidebar
+        side = tk.Frame(body, bg=self.C_SIDEBAR, width=170)
+        side.pack(side="left", fill="y"); side.pack_propagate(False)
+        self._msg_nav_btns = {}
+        for key, label, icon in [("all", "Conversations", "▤"),
+                                  ("unread", "Unread", "✉")]:
+            b = tk.Label(side, text=f"  {icon}  {label}", bg=self.C_SIDEBAR,
+                         fg=self.C_TEXT, font=("Segoe UI", 10), anchor="w",
+                         padx=12, pady=10, cursor="hand2")
+            b.pack(fill="x", pady=(6, 0), padx=6)
+            b.bind("<Button-1>", lambda e, k=key: self._msg_set_filter(k))
+            self._msg_nav_btns[key] = b
+        self._msg_highlight_nav()
 
-        rr = ttk.Frame(right); rr.pack(fill="x")
+        # conversation list (scrollable)
+        listwrap = tk.Frame(body, bg=self.C_BG, width=300)
+        listwrap.pack(side="left", fill="y"); listwrap.pack_propagate(False)
+        self.msg_canvas = tk.Canvas(listwrap, bg=self.C_BG, highlightthickness=0,
+                                    width=300)
+        sb = ttk.Scrollbar(listwrap, orient="vertical", command=self.msg_canvas.yview)
+        self.msg_rows = tk.Frame(self.msg_canvas, bg=self.C_BG)
+        self.msg_rows.bind("<Configure>", lambda e: self.msg_canvas.configure(
+            scrollregion=self.msg_canvas.bbox("all")))
+        self.msg_canvas.create_window((0, 0), window=self.msg_rows, anchor="nw", width=300)
+        self.msg_canvas.configure(yscrollcommand=sb.set)
+        self.msg_canvas.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+
+        tk.Frame(body, bg=self.C_DIVIDER, width=1).pack(side="left", fill="y")
+
+        # thread pane
+        right = tk.Frame(body, bg=self.C_BG)
+        right.pack(side="left", fill="both", expand=True)
+        self.msg_thread_lbl = tk.Label(right, text="Select a conversation",
+                                       bg=self.C_BG, fg=self.C_TEXT,
+                                       font=("Segoe UI", 11, "bold"), anchor="w",
+                                       padx=12, pady=10)
+        self.msg_thread_lbl.pack(fill="x")
+        tk.Frame(right, bg=self.C_DIVIDER, height=1).pack(fill="x")
+        self.msg_thread_box = tk.Text(right, state="disabled", wrap="word",
+                                      bg=self.C_BG, fg=self.C_TEXT, relief="flat",
+                                      padx=12, pady=8, font=("Segoe UI", 10))
+        self.msg_thread_box.pack(fill="both", expand=True)
+        self.msg_thread_box.tag_config("in", foreground="#00695c", spacing3=6)
+        self.msg_thread_box.tag_config("out", foreground="#1565c0",
+                                       justify="right", spacing3=6)
+        self.msg_thread_box.tag_config("meta", foreground=self.C_MUTED,
+                                       font=("Segoe UI", 8))
+
+        rr = tk.Frame(right, bg=self.C_BG); rr.pack(fill="x", pady=6, padx=8)
         self.msg_reply = tk.StringVar()
-        e = ttk.Entry(rr, textvariable=self.msg_reply, width=44)
-        e.pack(side="left", fill="x", expand=True)
+        e = tk.Entry(rr, textvariable=self.msg_reply, relief="flat", bg="#f1f1f1")
+        e.pack(side="left", fill="x", expand=True, ipady=6, padx=(0, 6))
         e.bind("<Return>", lambda ev: self._msg_send_reply())
-        ttk.Button(rr, text="Send", command=self._msg_send_reply).pack(side="left", padx=4)
+        tk.Button(rr, text="Send", relief="flat", bg=self.C_UNREAD, fg="white",
+                  bd=0, padx=16, pady=4, cursor="hand2",
+                  command=self._msg_send_reply).pack(side="left")
 
-    # ── SIM / polling control ──
+        # floating compose button
+        fab = tk.Button(tab, text="✚", relief="flat", bg=self.C_ACCENT, fg="white",
+                        bd=0, font=("Segoe UI", 16, "bold"), width=3, height=1,
+                        cursor="hand2", command=self._msg_new_message)
+        fab.place(relx=1.0, rely=1.0, x=-24, y=-24, anchor="se")
+
+    def _msg_set_filter(self, key):
+        self._msg_filter = key
+        self._msg_highlight_nav()
+        self._msg_refresh_conv_list()
+
+    def _msg_highlight_nav(self):
+        for k, b in self._msg_nav_btns.items():
+            b.config(bg=self.C_SEL if k == self._msg_filter else self.C_SIDEBAR)
+
+    def _msg_apply_filter(self):
+        self._msg_query = self.msg_search.get()
+        self._msg_refresh_conv_list()
 
     def _msg_new_message(self):
         """Start a fresh conversation with any number (not just those who
@@ -133,16 +211,17 @@ class MessagingTabMixin:
         self._msg_last_id = 0
         self._msg_active_phone = None
         self._msg_pending_status = {}
-        self.msg_conv_list.delete(0, "end")
+        self._msg_unread = set()
+        self._msg_refresh_conv_list()
         self._msg_render_thread()
         if self._msg_polling:
-            self.msg_status.config(text=f"Watching {self.msg_sim.get()}…", foreground="green")
+            self.msg_status.config(text=f"Watching {self.msg_sim.get()}…", fg="green")
 
     def _msg_toggle(self):
         if self._msg_polling:
             self._msg_polling = False
             self.msg_toggle_btn.config(text="▶ Start")
-            self.msg_status.config(text="Stopped", foreground="gray")
+            self.msg_status.config(text="Stopped", fg="gray")
             return
         if not (self.sms_token.get().strip() if hasattr(self, "sms_token") else load_sms_token()):
             if not load_sms_token():
@@ -151,7 +230,7 @@ class MessagingTabMixin:
                 return
         self._msg_polling = True
         self.msg_toggle_btn.config(text="⏸ Stop")
-        self.msg_status.config(text=f"Watching {self.msg_sim.get()}…", foreground="green")
+        self.msg_status.config(text=f"Watching {self.msg_sim.get()}…", fg="green")
         threading.Thread(target=self._msg_poll_loop, daemon=True).start()
 
     def _msg_poll_loop(self):
@@ -164,7 +243,7 @@ class MessagingTabMixin:
                 msgs = M.parse_inbox(r.json())
             except Exception as e:
                 self.after(0, lambda e=e: self.msg_status.config(
-                    text=f"Poll error: {e}", foreground="red"))
+                    text=f"Poll error: {e}", fg="red"))
                 msgs = []
             # ignore results if the user switched SIM mid-request
             if device == self._msg_device_id and msgs:
@@ -191,6 +270,10 @@ class MessagingTabMixin:
 
     def _msg_ingest(self, fresh):
         M.add_messages(self._msg_threads, fresh, "in")
+        for m in fresh:
+            ph = m.get("phone", "").strip()
+            if ph and ph != self._msg_active_phone:
+                self._msg_unread.add(ph)
         self._msg_refresh_conv_list()
         if self._msg_active_phone in self._msg_threads:
             self._msg_render_thread()
@@ -214,24 +297,53 @@ class MessagingTabMixin:
     # ── conversation list + thread view ──
 
     def _msg_refresh_conv_list(self):
-        order = M.thread_order(self._msg_threads)
-        sel = self._msg_active_phone
-        self.msg_conv_list.delete(0, "end")
-        for phone in order:
-            msgs = self._msg_threads[phone]
-            last = msgs[-1]["msg"][:20] if msgs else "(new)"
-            self.msg_conv_list.insert("end", f"{phone}  — {last}")
-        if sel in order:
-            self.msg_conv_list.selection_set(order.index(sel))
+        """Draw Pulse-style rows: avatar circle, number, preview, time, unread dot."""
+        for w in self.msg_rows.winfo_children():
+            w.destroy()
+        unread = self._msg_unread if self._msg_filter == "unread" else None
+        phones = M.filter_threads(self._msg_threads, self._msg_query, unread)
+        self._msg_row_index = phones
+        for phone in phones:
+            self._msg_draw_row(phone)
 
-    def _msg_open_selected(self):
-        idx = self.msg_conv_list.curselection()
-        if not idx:
-            return
-        order = M.thread_order(self._msg_threads)
-        if idx[0] < len(order):
-            self._msg_active_phone = order[idx[0]]
-            self._msg_render_thread()
+    def _msg_draw_row(self, phone):
+        is_unread = phone in self._msg_unread
+        is_sel = phone == self._msg_active_phone
+        bg = self.C_SEL if is_sel else self.C_BG
+        row = tk.Frame(self.msg_rows, bg=bg, cursor="hand2")
+        row.pack(fill="x")
+        row.bind("<Button-1>", lambda e, p=phone: self._msg_open_phone(p))
+
+        # avatar circle (canvas)
+        av = tk.Canvas(row, width=44, height=44, bg=bg, highlightthickness=0)
+        av.pack(side="left", padx=8, pady=6)
+        col = M.avatar_color(phone)
+        av.create_oval(4, 4, 40, 40, fill=col, outline=col)
+        av.create_text(22, 22, text=M.avatar_initials(phone), fill="white",
+                       font=("Segoe UI", 10, "bold"))
+        av.bind("<Button-1>", lambda e, p=phone: self._msg_open_phone(p))
+
+        mid = tk.Frame(row, bg=bg); mid.pack(side="left", fill="x", expand=True, pady=6)
+        top = tk.Frame(mid, bg=bg); top.pack(fill="x")
+        dot = "● " if is_unread else ""
+        tk.Label(top, text=dot, bg=bg, fg=self.C_UNREAD,
+                 font=("Segoe UI", 8)).pack(side="left")
+        tk.Label(top, text=phone, bg=bg, fg=self.C_TEXT, anchor="w",
+                 font=("Segoe UI", 10, "bold" if is_unread else "normal")).pack(side="left")
+        tk.Label(top, text=M.last_time(self._msg_threads, phone), bg=bg,
+                 fg=self.C_MUTED, font=("Segoe UI", 8)).pack(side="right", padx=8)
+        tk.Label(mid, text=M.preview_text(self._msg_threads, phone), bg=bg,
+                 fg=self.C_MUTED, anchor="w", font=("Segoe UI", 9),
+                 justify="left").pack(fill="x")
+        for w in (mid, top):
+            w.bind("<Button-1>", lambda e, p=phone: self._msg_open_phone(p))
+        tk.Frame(self.msg_rows, bg=self.C_DIVIDER, height=1).pack(fill="x")
+
+    def _msg_open_phone(self, phone):
+        self._msg_active_phone = phone
+        self._msg_unread.discard(phone)      # opening marks read
+        self._msg_refresh_conv_list()
+        self._msg_render_thread()
 
     def _msg_render_thread(self):
         self.msg_thread_box.config(state="normal")
@@ -308,6 +420,6 @@ class MessagingTabMixin:
                 self._msg_refresh_conv_list()
                 if not ok:
                     self.msg_status.config(text="Reply may have failed (check SemySMS).",
-                                           foreground="red")
+                                           fg="red")
             self.after(0, finish)
         threading.Thread(target=worker, daemon=True).start()

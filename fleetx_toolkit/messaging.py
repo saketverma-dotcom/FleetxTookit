@@ -177,3 +177,65 @@ def sms_segments(text):
     if gsm:
         return (n, 1) if n <= 160 else (n, -(-n // 153))
     return (n, 1) if n <= 70 else (n, -(-n // 67))
+
+
+# ─────────────── UI helpers (avatar color, initials, filtering) ───────────────
+
+# Pulse-style flat palette for avatar circles
+AVATAR_COLORS = ["#e91e63", "#ff9800", "#9e9e9e", "#673ab7", "#00bcd4",
+                 "#ffc107", "#795548", "#4caf50", "#3f51b5", "#f44336",
+                 "#009688", "#8bc34a"]
+
+
+def avatar_color(phone):
+    """Deterministic color for a number, so each contact keeps one hue."""
+    digits = "".join(ch for ch in str(phone) if ch.isdigit()) or "0"
+    return AVATAR_COLORS[int(digits[-4:] or 0) % len(AVATAR_COLORS)]
+
+
+def avatar_initials(phone):
+    """Last two digits of the number — a compact, stable avatar label."""
+    digits = "".join(ch for ch in str(phone) if ch.isdigit())
+    return digits[-2:] if len(digits) >= 2 else (digits or "?")
+
+
+def preview_text(threads, phone, limit=38):
+    """Last message body for the conversation-row preview."""
+    msgs = threads.get(phone, [])
+    if not msgs:
+        return "(new conversation)"
+    last = sorted(msgs, key=_ts_key)[-1]
+    body = (last.get("msg") or "").replace("\n", " ").strip()
+    return body[:limit] + ("…" if len(body) > limit else "")
+
+
+def last_time(threads, phone):
+    """Short HH:MM of the latest message in a thread, for the row timestamp."""
+    msgs = threads.get(phone, [])
+    if not msgs:
+        return ""
+    date = sorted(msgs, key=_ts_key)[-1].get("date", "")
+    if " " in date:
+        parts = date.split(" ", 1)[1].split(":")
+        if len(parts) >= 2:
+            return f"{parts[0]}:{parts[1]}"
+    return ""
+
+
+def filter_threads(threads, query="", unread=None):
+    """Ordered phone list filtered by a search query (matches number or any
+    message text) and/or unread flag. `unread` is a set of phones with unread
+    incoming; if given, only those are returned."""
+    order = thread_order(threads)
+    q = (query or "").strip().lower()
+    out = []
+    for phone in order:
+        if unread is not None and phone not in unread:
+            continue
+        if q:
+            hay = phone.lower() + " " + " ".join(
+                (m.get("msg") or "").lower() for m in threads[phone])
+            if q not in hay:
+                continue
+        out.append(phone)
+    return out

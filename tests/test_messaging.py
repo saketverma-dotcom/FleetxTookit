@@ -160,3 +160,45 @@ class TestSegments:
 
     def test_unicode_multi(self):
         assert M.sms_segments("é" * 71) == (71, 2)
+
+
+class TestUIHelpers:
+    def test_avatar_color_stable_and_in_palette(self):
+        c = M.avatar_color("+915755201963999")
+        assert c == M.avatar_color("+915755201963999")
+        assert c in M.AVATAR_COLORS
+
+    def test_avatar_initials(self):
+        assert M.avatar_initials("+915755201963999") == "99"
+        assert M.avatar_initials("5") == "5"
+        assert M.avatar_initials("") == "?"
+
+    def test_preview_and_time(self):
+        t = {"+9198": [{"id": 1, "phone": "+9198", "msg": "CONFIGURATION SAVED",
+                        "date": "2026-01-09 15:59", "dir": "in"}]}
+        assert M.preview_text(t, "+9198") == "CONFIGURATION SAVED"
+        assert M.last_time(t, "+9198") == "15:59"
+        assert M.preview_text({}, "+000") == "(new conversation)"
+        assert M.last_time({}, "+000") == ""
+
+    def test_preview_truncates(self):
+        t = {"+9198": [{"id": 1, "phone": "+9198", "msg": "x" * 100,
+                        "date": "2026-01-09 15:59", "dir": "in"}]}
+        p = M.preview_text(t, "+9198", limit=38)
+        assert len(p) == 39 and p.endswith("…")
+
+    def test_filter_by_query(self):
+        t = {"+9198": [{"id": 1, "phone": "+9198", "msg": "CONFIG SAVED",
+                        "date": "2026-01-09 15:00", "dir": "in"}],
+             "+9111": [{"id": 2, "phone": "+9111", "msg": "SET OK",
+                        "date": "2026-01-09 16:00", "dir": "in"}]}
+        assert M.filter_threads(t, "config") == ["+9198"]
+        assert M.filter_threads(t, "9111") == ["+9111"]
+        assert set(M.filter_threads(t, "")) == {"+9198", "+9111"}
+
+    def test_filter_by_unread(self):
+        t = {"+9198": [{"id": 1, "phone": "+9198", "msg": "a",
+                        "date": "2026-01-09 15:00", "dir": "in"}],
+             "+9111": [{"id": 2, "phone": "+9111", "msg": "b",
+                        "date": "2026-01-09 16:00", "dir": "in"}]}
+        assert M.filter_threads(t, "", unread={"+9111"}) == ["+9111"]
