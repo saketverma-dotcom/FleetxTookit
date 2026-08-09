@@ -45,12 +45,20 @@ class SmsTabMixin:
 
         # ── Paste frame ──
         self.sms_paste_frame = ttk.Frame(tab)
-        ttk.Label(self.sms_paste_frame, text="Numbers (one per line):").pack(anchor="w")
+        nrow = ttk.Frame(self.sms_paste_frame); nrow.pack(fill="x")
+        ttk.Label(nrow, text="Numbers (one per line):").pack(side="left")
+        self.sms_count_lbl = ttk.Label(nrow, text="0 recipients", foreground="gray")
+        self.sms_count_lbl.pack(side="right")
         self.sms_numbers = scrolledtext.ScrolledText(self.sms_paste_frame, height=6, width=40)
         self.sms_numbers.pack(fill="x")
-        ttk.Label(self.sms_paste_frame, text="Message:").pack(anchor="w", pady=(6, 0))
+        self.sms_numbers.bind("<KeyRelease>", lambda e: self._sms_update_counts())
+        mrow = ttk.Frame(self.sms_paste_frame); mrow.pack(fill="x", pady=(6, 0))
+        ttk.Label(mrow, text="Message:").pack(side="left")
+        self.sms_char_lbl = ttk.Label(mrow, text="0 chars · 0 SMS", foreground="gray")
+        self.sms_char_lbl.pack(side="right")
         self.sms_msg = scrolledtext.ScrolledText(self.sms_paste_frame, height=3, width=40)
         self.sms_msg.pack(fill="x")
+        self.sms_msg.bind("<KeyRelease>", lambda e: self._sms_update_counts())
 
         # ── Excel frame ──
         self.sms_excel_frame = ttk.Frame(tab)
@@ -79,6 +87,14 @@ class SmsTabMixin:
 
         ttk.Button(tab, text="▶ Send SMS",
                    command=lambda: self._run_thread(self._run_sms)).pack(anchor="w", pady=8)
+
+    def _sms_update_counts(self):
+        from .. import messaging as _M
+        nums = [n for n in (x.strip() for x in
+                self.sms_numbers.get("1.0", "end").splitlines()) if n]
+        self.sms_count_lbl.config(text=f"{len(nums)} recipient" + ("" if len(nums) == 1 else "s"))
+        chars, seg = _M.sms_segments(self.sms_msg.get("1.0", "end").rstrip("\n"))
+        self.sms_char_lbl.config(text=f"{chars} chars · {seg} SMS")
 
     def _sms_mode_switch(self):
         if self.sms_mode.get() == "paste":

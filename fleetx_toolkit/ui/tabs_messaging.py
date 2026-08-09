@@ -36,6 +36,7 @@ class MessagingTabMixin:
         cb.bind("<<ComboboxSelected>>", lambda e: self._msg_switch_sim())
         self.msg_toggle_btn = ttk.Button(top, text="▶ Start", command=self._msg_toggle)
         self.msg_toggle_btn.pack(side="left", padx=6)
+        ttk.Button(top, text="✚ New message", command=self._msg_new_message).pack(side="left", padx=2)
         self.msg_status = ttk.Label(top, text="Stopped", foreground="gray")
         self.msg_status.pack(side="left", padx=8)
         ttk.Label(top, text=f"(polls every {MESSAGING_POLL_SECONDS}s — one SIM at a time)",
@@ -69,6 +70,62 @@ class MessagingTabMixin:
         ttk.Button(rr, text="Send", command=self._msg_send_reply).pack(side="left", padx=4)
 
     # ── SIM / polling control ──
+
+    def _msg_new_message(self):
+        """Start a fresh conversation with any number (not just those who
+        messaged us). Opens a small compose dialog; on send it creates the
+        thread and routes through the normal reply path."""
+        from ..sms import normalize_number
+        dlg = tk.Toplevel(self)
+        dlg.title("New message")
+        dlg.transient(self); dlg.grab_set()
+        dlg.resizable(False, False)
+        frm = ttk.Frame(dlg, padding=12); frm.pack(fill="both", expand=True)
+
+        ttk.Label(frm, text=f"Send from: {self.msg_sim.get()}",
+                  font=("Segoe UI", 9, "bold")).grid(row=0, column=0, columnspan=2, sticky="w")
+        ttk.Label(frm, text="To number:").grid(row=1, column=0, sticky="e", pady=6)
+        num_var = tk.StringVar()
+        num_e = ttk.Entry(frm, textvariable=num_var, width=28)
+        num_e.grid(row=1, column=1, pady=6); num_e.focus_set()
+        ttk.Label(frm, text="(with country code, e.g. +9198…)",
+                  foreground="gray").grid(row=2, column=1, sticky="w")
+
+        ttk.Label(frm, text="Message:").grid(row=3, column=0, sticky="ne", pady=6)
+        msg_txt = tk.Text(frm, height=4, width=32, wrap="word")
+        msg_txt.grid(row=3, column=1, pady=6)
+        count_lbl = ttk.Label(frm, text="0 chars · 0 SMS", foreground="gray")
+        count_lbl.grid(row=4, column=1, sticky="w")
+
+        def upd_count(*_):
+            n, seg = M.sms_segments(msg_txt.get("1.0", "end").rstrip("\n"))
+            count_lbl.config(text=f"{n} chars · {seg} SMS")
+        msg_txt.bind("<KeyRelease>", upd_count)
+
+        btns = ttk.Frame(frm); btns.grid(row=5, column=0, columnspan=2, pady=(8, 0))
+
+        def do_send():
+            phone = normalize_number(num_var.get(), "")
+            text = msg_txt.get("1.0", "end").strip()
+            if not phone:
+                messagebox.showerror("New message", "Enter a valid number.", parent=dlg); return
+            if not text:
+                messagebox.showerror("New message", "Enter a message.", parent=dlg); return
+            if not load_sms_token():
+                messagebox.showerror("New message",
+                    "No SemySMS token. Save it in the SMS Command tab first.", parent=dlg); return
+            # ensure a thread bucket exists and make it active, then reuse reply path
+            self._msg_threads.setdefault(phone, [])
+            self._msg_active_phone = phone
+            self.msg_reply.set(text)
+            dlg.destroy()
+            self._msg_refresh_conv_list()
+            self._msg_render_thread()
+            self._msg_send_reply()
+
+        ttk.Button(btns, text="Send", command=do_send).pack(side="left", padx=4)
+        ttk.Button(btns, text="Cancel", command=dlg.destroy).pack(side="left", padx=4)
+        dlg.bind("<Escape>", lambda e: dlg.destroy())
 
     def _msg_switch_sim(self):
         self._msg_device_id = sim_id_for_name(self.msg_sim.get())
@@ -161,7 +218,8 @@ class MessagingTabMixin:
         sel = self._msg_active_phone
         self.msg_conv_list.delete(0, "end")
         for phone in order:
-            last = self._msg_threads[phone][-1]["msg"][:20]
+            msgs = self._msg_threads[phone]
+            last = msgs[-1]["msg"][:20] if msgs else "(new)"
             self.msg_conv_list.insert("end", f"{phone}  — {last}")
         if sel in order:
             self.msg_conv_list.selection_set(order.index(sel))

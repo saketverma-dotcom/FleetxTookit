@@ -159,3 +159,21 @@ def _ts_key(m):
     """Sort key: real timestamp string if present, else empty (sorts first).
     ISO-ish 'YYYY-MM-DD HH:MM:SS...' strings sort correctly lexicographically."""
     return (m.get("date") or "", m.get("id", 0))
+
+
+# ─────────────── message length / segment helper ───────────────
+
+def sms_segments(text):
+    """(char_count, segment_count) for an SMS. GSM: 160 chars/segment single,
+    153/segment when concatenated. Unicode (non-GSM chars): 70 / 67. Rough but
+    matches how SemySMS/carriers bill and split."""
+    text = text or ""
+    n = len(text)
+    # crude GSM-7 detection: if any char is outside basic latin/common set,
+    # treat the whole message as Unicode (UCS-2).
+    gsm = all(ord(c) < 128 for c in text)
+    if n == 0:
+        return 0, 0
+    if gsm:
+        return (n, 1) if n <= 160 else (n, -(-n // 153))
+    return (n, 1) if n <= 70 else (n, -(-n // 67))

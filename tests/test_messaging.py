@@ -140,3 +140,23 @@ class TestTimestampSort:
         M.add_messages(t, [{"id": 1, "phone": "+92", "msg": "new",
                             "date": "2026-01-09 14:00"}], "in")
         assert M.thread_order(t)[0] == "+92"   # newer timestamp wins despite lower id
+
+
+class TestSegments:
+    def test_empty(self):
+        assert M.sms_segments("") == (0, 0)
+
+    def test_gsm_single(self):
+        assert M.sms_segments("hello") == (5, 1)
+        assert M.sms_segments("a" * 160) == (160, 1)
+
+    def test_gsm_multi(self):
+        assert M.sms_segments("a" * 161) == (161, 2)
+        assert M.sms_segments("a" * 306) == (306, 2)
+        assert M.sms_segments("a" * 307) == (307, 3)
+
+    def test_unicode_single(self):
+        assert M.sms_segments("😀") == (1, 1)
+
+    def test_unicode_multi(self):
+        assert M.sms_segments("é" * 71) == (71, 2)
