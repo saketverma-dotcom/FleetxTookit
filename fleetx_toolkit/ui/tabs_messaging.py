@@ -135,6 +135,7 @@ class MessagingTabMixin:
                   command=self._msg_send_reply).pack(side="left")
 
     def _msg_apply_filter(self):
+        self._msg_mark_activity()
         self._msg_query = self.msg_search.get()
         self._msg_force_redraw()
         self._msg_refresh_conv_list()
@@ -196,6 +197,7 @@ class MessagingTabMixin:
         dlg.bind("<Escape>", lambda e: dlg.destroy())
 
     def _msg_switch_sim(self):
+        self._msg_mark_activity()
         self._msg_device_id = sim_id_for_name(self.msg_sim.get())
         self._msg_threads = {}
         self._msg_last_id = 0
@@ -222,7 +224,36 @@ class MessagingTabMixin:
         self._msg_polling = True
         self.msg_toggle_btn.config(text="⏸ Stop")
         self.msg_status.config(text=f"Watching {self.msg_sim.get()}…", fg="green")
+        self._msg_mark_activity()
+        self._msg_schedule_idle_check()
         threading.Thread(target=self._msg_poll_loop, daemon=True).start()
+
+    # ── auto-stop after 2 minutes of no interaction with the tab ──
+    MSG_IDLE_TIMEOUT = 120        # seconds
+
+    def _msg_mark_activity(self):
+        import time as _t
+        self._msg_last_activity = _t.monotonic()
+
+    def _msg_schedule_idle_check(self):
+        # single recurring 5s check while polling; cancels itself when stopped
+        if getattr(self, "_msg_idle_job", None):
+            try:
+                self.after_cancel(self._msg_idle_job)
+            except Exception:
+                pass
+            self._msg_idle_job = None
+        if not self._msg_polling:
+            return
+        import time as _t
+        idle = _t.monotonic() - getattr(self, "_msg_last_activity", _t.monotonic())
+        if idle >= self.MSG_IDLE_TIMEOUT:
+            self._msg_polling = False
+            self.msg_toggle_btn.config(text="▶ Start")
+            self.msg_status.config(
+                text="Auto-stopped (idle 2 min) — press Start to resume", fg="#e65100")
+            return
+        self._msg_idle_job = self.after(5000, self._msg_schedule_idle_check)
 
     def _msg_poll_loop(self):
         token = load_sms_token()
@@ -349,6 +380,7 @@ class MessagingTabMixin:
         tk.Frame(self.msg_rows, bg=self.C_DIVIDER, height=1).pack(fill="x")
 
     def _msg_open_phone(self, phone):
+        self._msg_mark_activity()
         self._msg_active_phone = phone
         self._msg_unread.discard(phone)      # opening marks read
         # render the thread immediately (cheap, feels responsive)
@@ -398,6 +430,7 @@ class MessagingTabMixin:
     # ── reply ──
 
     def _msg_send_reply(self):
+        self._msg_mark_activity()
         phone = self._msg_active_phone
         if not phone:
             self._ui_error("Messaging", "Open a conversation first.")

@@ -47,7 +47,58 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         self.stop_flag = False
         self.is_admin_user = False
         self.commands = load_commands()
+        # UI zoom (persisted): 1.0 = default. Ctrl+= / Ctrl+- / Ctrl+0.
+        try:
+            self._zoom = float(load_settings().get("ui_zoom", 1.0))
+        except Exception:
+            self._zoom = 1.0
+        self._zoom = min(2.0, max(0.7, self._zoom))
+        self._apply_zoom(persist=False)
+        self.bind_all("<Control-plus>", lambda e: self._zoom_step(0.1))
+        self.bind_all("<Control-equal>", lambda e: self._zoom_step(0.1))
+        self.bind_all("<Control-minus>", lambda e: self._zoom_step(-0.1))
+        self.bind_all("<Control-KP_Add>", lambda e: self._zoom_step(0.1))
+        self.bind_all("<Control-KP_Subtract>", lambda e: self._zoom_step(-0.1))
+        self.bind_all("<Control-0>", lambda e: self._zoom_reset())
         self._build_login()
+
+    def _apply_zoom(self, persist=True):
+        z = self._zoom
+        try:
+            self.tk.call("tk", "scaling", 1.333 * z)   # base ~96dpi * zoom
+        except Exception:
+            pass
+        # scale named/default fonts so existing widgets grow too
+        import tkinter.font as tkfont
+        for name in ("TkDefaultFont", "TkTextFont", "TkMenuFont",
+                     "TkHeadingFont", "TkFixedFont"):
+            try:
+                f = tkfont.nametofont(name)
+                base = getattr(self, "_base_font_sizes", {}).get(name) or abs(f.cget("size")) or 9
+                self._base_font_sizes = getattr(self, "_base_font_sizes", {})
+                self._base_font_sizes.setdefault(name, base)
+                f.configure(size=max(6, int(round(self._base_font_sizes[name] * z))))
+            except Exception:
+                pass
+        if persist:
+            try:
+                s = load_settings(); s["ui_zoom"] = round(z, 2); save_settings(s)
+            except Exception:
+                pass
+        if hasattr(self, "_zoom_lbl"):
+            try:
+                self._zoom_lbl.config(text=f"{int(z * 100)}%")
+            except Exception:
+                pass
+
+    def _zoom_step(self, delta):
+        self._zoom = min(2.0, max(0.7, round(self._zoom + delta, 2)))
+        self._apply_zoom()
+
+    def _zoom_reset(self):
+        self._zoom = 1.0
+        self._apply_zoom()
+
     def _build_login(self):
         self.login_frame = ttk.Frame(self, padding=40)
         self.login_frame.pack(expand=True)
@@ -282,6 +333,15 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
             ttk.Button(top, text=f"⬆ Update to v{upd[0]}",
                        command=lambda u=upd: self._do_self_update(*u)).pack(side="left", padx=10)
         ttk.Button(top, text="Logout", command=self._logout).pack(side="right")
+        # zoom controls
+        zf = ttk.Frame(top); zf.pack(side="right", padx=10)
+        ttk.Button(zf, text="A−", width=3,
+                   command=lambda: self._zoom_step(-0.1)).pack(side="left")
+        self._zoom_lbl = ttk.Label(zf, text=f"{int(self._zoom * 100)}%", width=5,
+                                   anchor="center")
+        self._zoom_lbl.pack(side="left")
+        ttk.Button(zf, text="A+", width=3,
+                   command=lambda: self._zoom_step(0.1)).pack(side="left")
 
         # Runtime settings (persisted)
         s = load_settings()
