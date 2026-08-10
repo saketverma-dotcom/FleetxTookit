@@ -31,8 +31,7 @@ class AdminTabsMixin:
     """Admin-only User Access tab (Gist-backed matrix)."""
 
     def _tab_user_access(self):
-        tab = ttk.Frame(self.nb, padding=8)
-        self.nb.add(tab, text="User Access (Admin)")
+        tab = self._scrollable_tab("User Access (Admin)", padding=8)
 
         # In-memory working copy of the rules {email: [tabs]}
         self.access_rules = {}

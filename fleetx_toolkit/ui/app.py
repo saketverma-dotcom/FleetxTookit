@@ -47,57 +47,7 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         self.stop_flag = False
         self.is_admin_user = False
         self.commands = load_commands()
-        # UI zoom (persisted): 1.0 = default. Ctrl+= / Ctrl+- / Ctrl+0.
-        try:
-            self._zoom = float(load_settings().get("ui_zoom", 1.0))
-        except Exception:
-            self._zoom = 1.0
-        self._zoom = min(2.0, max(0.7, self._zoom))
-        self._apply_zoom(persist=False)
-        self.bind_all("<Control-plus>", lambda e: self._zoom_step(0.1))
-        self.bind_all("<Control-equal>", lambda e: self._zoom_step(0.1))
-        self.bind_all("<Control-minus>", lambda e: self._zoom_step(-0.1))
-        self.bind_all("<Control-KP_Add>", lambda e: self._zoom_step(0.1))
-        self.bind_all("<Control-KP_Subtract>", lambda e: self._zoom_step(-0.1))
-        self.bind_all("<Control-0>", lambda e: self._zoom_reset())
         self._build_login()
-
-    def _apply_zoom(self, persist=True):
-        z = self._zoom
-        try:
-            self.tk.call("tk", "scaling", 1.333 * z)   # base ~96dpi * zoom
-        except Exception:
-            pass
-        # scale named/default fonts so existing widgets grow too
-        import tkinter.font as tkfont
-        for name in ("TkDefaultFont", "TkTextFont", "TkMenuFont",
-                     "TkHeadingFont", "TkFixedFont"):
-            try:
-                f = tkfont.nametofont(name)
-                base = getattr(self, "_base_font_sizes", {}).get(name) or abs(f.cget("size")) or 9
-                self._base_font_sizes = getattr(self, "_base_font_sizes", {})
-                self._base_font_sizes.setdefault(name, base)
-                f.configure(size=max(6, int(round(self._base_font_sizes[name] * z))))
-            except Exception:
-                pass
-        if persist:
-            try:
-                s = load_settings(); s["ui_zoom"] = round(z, 2); save_settings(s)
-            except Exception:
-                pass
-        if hasattr(self, "_zoom_lbl"):
-            try:
-                self._zoom_lbl.config(text=f"{int(z * 100)}%")
-            except Exception:
-                pass
-
-    def _zoom_step(self, delta):
-        self._zoom = min(2.0, max(0.7, round(self._zoom + delta, 2)))
-        self._apply_zoom()
-
-    def _zoom_reset(self):
-        self._zoom = 1.0
-        self._apply_zoom()
 
     def _build_login(self):
         self.login_frame = ttk.Frame(self, padding=40)
@@ -319,6 +269,32 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         state.user_email = email
         self.is_admin_user = is_admin(email)
         self._enter_main()
+    def _scrollable_tab(self, text, padding=8):
+        """Create a notebook tab whose content scrolls vertically when it's
+        taller than the visible area. Returns the inner frame to build into.
+        Adjusts to window size; scrollbar appears only when needed."""
+        outer = ttk.Frame(self.nb)
+        self.nb.add(outer, text=text)
+        canvas = tk.Canvas(outer, highlightthickness=0)
+        vsb = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        vsb.pack(side="right", fill="y")
+        inner = ttk.Frame(canvas, padding=padding)
+        win = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def _on_inner(e):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        inner.bind("<Configure>", _on_inner)
+        # keep inner width matched to the canvas so content fills horizontally
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(win, width=e.width))
+        # mouse-wheel only while pointer is over this canvas
+        def _wheel(ev):
+            canvas.yview_scroll(int(-1 * (ev.delta / 120)), "units")
+        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _wheel))
+        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+        return inner
+
     def _enter_main(self):
         self.login_frame.destroy()
         top = ttk.Frame(self, padding=(10, 6))
@@ -333,15 +309,6 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
             ttk.Button(top, text=f"⬆ Update to v{upd[0]}",
                        command=lambda u=upd: self._do_self_update(*u)).pack(side="left", padx=10)
         ttk.Button(top, text="Logout", command=self._logout).pack(side="right")
-        # zoom controls
-        zf = ttk.Frame(top); zf.pack(side="right", padx=10)
-        ttk.Button(zf, text="A−", width=3,
-                   command=lambda: self._zoom_step(-0.1)).pack(side="left")
-        self._zoom_lbl = ttk.Label(zf, text=f"{int(self._zoom * 100)}%", width=5,
-                                   anchor="center")
-        self._zoom_lbl.pack(side="left")
-        ttk.Button(zf, text="A+", width=3,
-                   command=lambda: self._zoom_step(0.1)).pack(side="left")
 
         # Runtime settings (persisted)
         s = load_settings()
@@ -349,8 +316,15 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         self.dry_run_var = tk.BooleanVar(value=False)   # always starts OFF for safety
         self.auto_retry_var = tk.BooleanVar(value=bool(s.get("auto_retry", True)))
 
-        self.nb = ttk.Notebook(self)
-        self.nb.pack(fill="both", expand=True, padx=8, pady=4)
+        # Notebook and Live Log share a draggable vertical split, so you can
+        # resize how much room each gets (drag the divider). Both expand to fill.
+        self._main_paned = ttk.PanedWindow(self, orient="vertical")
+        self._main_paned.pack(fill="both", expand=True, padx=8, pady=4)
+
+        nb_holder = ttk.Frame(self._main_paned)
+        self.nb = ttk.Notebook(nb_holder)
+        self.nb.pack(fill="both", expand=True)
+        self._main_paned.add(nb_holder, weight=4)
 
         # Snapshot rules once at login (avoids repeated Gist hits during tab build)
         access_control.set_snapshot(load_access())
@@ -391,14 +365,14 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
                               "Ask the admin (saket.verma@fleetx.io) to grant you access.",
                       font=("Segoe UI", 11)).pack(pady=40)
 
-        logf = ttk.LabelFrame(self, text="Live Log", padding=4)
-        logf.pack(fill="both", expand=True, padx=8, pady=(0, 8))
-        self.log_box = scrolledtext.ScrolledText(logf, height=11, state="disabled",
+        logf = ttk.LabelFrame(self._main_paned, text="Live Log (drag divider above to resize)", padding=4)
+        self.log_box = scrolledtext.ScrolledText(logf, height=8, state="disabled",
                                                   font=("Consolas", 9))
         self.log_box.pack(fill="both", expand=True)
         self.log_box.tag_config("ok", foreground="green")
         self.log_box.tag_config("err", foreground="red")
         self.log_box.tag_config("info", foreground="blue")
+        self._main_paned.add(logf, weight=1)
 
         btns = ttk.Frame(self)
         btns.pack(fill="x", padx=8, pady=(0, 8))
@@ -673,8 +647,7 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
             save_result_log(results, columns, label, self.log)
         return results, halted
     def _tab_settings(self):
-        tab = ttk.Frame(self.nb, padding=12)
-        self.nb.add(tab, text="⚙ Settings")
+        tab = self._scrollable_tab("⚙ Settings", padding=12)
 
         f = ttk.LabelFrame(tab, text="Request behaviour", padding=10)
         f.pack(fill="x", pady=4)

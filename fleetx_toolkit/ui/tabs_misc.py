@@ -32,8 +32,7 @@ class MiscTabsMixin:
     """Tabs 7-9: SensorType, Assets, Tickets."""
 
     def _tab_sensor_type(self):
-        tab = ttk.Frame(self.nb, padding=8)
-        self.nb.add(tab, text="SensorType")
+        tab = self._scrollable_tab("SensorType", padding=8)
         f = ttk.Frame(tab); f.pack(fill="x")
         ttk.Label(f, text="Sensor Type:").pack(side="left")
         self.sensor_var = tk.StringVar(value=SENSOR_PRESETS[0])
@@ -92,8 +91,7 @@ class MiscTabsMixin:
             return (vid, stype), r
         self._loop(vids, "SensorType Update", fn, ["Vehicle ID", "Sensor Type"])
     def _tab_assets(self):
-        tab = ttk.Frame(self.nb, padding=8)
-        self.nb.add(tab, text="Assets")
+        tab = self._scrollable_tab("Assets", padding=8)
 
         f1 = ttk.LabelFrame(tab, text="Add Fuel-Sensor Assets (e.g. ESCORT_TDBLE)", padding=6)
         f1.pack(fill="x", pady=2)
@@ -149,8 +147,7 @@ class MiscTabsMixin:
             return (aid, self.asset_supplier.get()), r
         self._loop(ids, "Asset Supplier Update", fn, ["Asset ID", "Supplier"])
     def _tab_tickets(self):
-        tab = ttk.Frame(self.nb, padding=8)
-        self.nb.add(tab, text="Tickets")
+        tab = self._scrollable_tab("Tickets", padding=8)
 
         ttk.Label(tab, text="Tick who to assign, set each one's count "
                             "(blank or 'rest' = split remaining). Use ▲▼ to set the order "

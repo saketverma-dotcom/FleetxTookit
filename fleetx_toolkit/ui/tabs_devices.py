@@ -31,8 +31,7 @@ class DeviceTabsMixin:
     """Tabs 1-4: Device Add, SIM Inventory, SIM Update, Vehicle-Device Map."""
 
     def _tab_device_add(self):
-        tab = ttk.Frame(self.nb, padding=8)
-        self.nb.add(tab, text="Device Add")
+        tab = self._scrollable_tab("Device Add", padding=8)
 
         # -- Full register (Excel) --
         f1 = ttk.LabelFrame(tab, text="Register with SIM / Serial (Excel: id | device_type | sim | serial_number)",
@@ -94,8 +93,7 @@ class DeviceTabsMixin:
             return (imei, dtype), r
         self._loop(imeis, "Camera Device Add", fn, ["IMEI", "Type"])
     def _tab_sim_inventory(self):
-        tab = ttk.Frame(self.nb, padding=8)
-        self.nb.add(tab, text="SIM Inventory")
+        tab = self._scrollable_tab("SIM Inventory", padding=8)
         row = ttk.Frame(tab); row.pack(fill="x", pady=2)
         ttk.Label(row, text="Provider/Supplier:").pack(side="left")
         self.sim_provider = tk.StringVar(value="ONOMONDO")
@@ -128,8 +126,7 @@ class DeviceTabsMixin:
             return (sim, self.sim_provider.get()), r
         self._loop(sims, "SIM Inventory Add", fn, ["SIM", "Provider"])
     def _tab_sim_update(self):
-        tab = ttk.Frame(self.nb, padding=8)
-        self.nb.add(tab, text="SIM Update")
+        tab = self._scrollable_tab("SIM Update", padding=8)
         ttk.Label(tab, text="Excel columns: device_id | sim | mobile",
                   foreground="gray").pack(anchor="w")
         f = ttk.Frame(tab); f.pack(fill="x", pady=4)
@@ -160,8 +157,7 @@ class DeviceTabsMixin:
             return (did, sim), r
         self._loop(records, "SIM Update", fn, ["Device ID", "SIM"])
     def _tab_vehicle_map(self):
-        tab = ttk.Frame(self.nb, padding=8)
-        self.nb.add(tab, text="Vehicle-Device Map")
+        tab = self._scrollable_tab("Vehicle-Device Map", padding=8)
         ttk.Label(tab, text="Paste pairs:  deviceId,vehicleId  (one pair per line)  —  "
                             "or Excel with columns: device_id | vehicle_id",
                   foreground="gray").pack(anchor="w")

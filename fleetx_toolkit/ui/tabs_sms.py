@@ -14,8 +14,7 @@ class SmsTabMixin:
     """SMS Command tab — bulk SMS via SemySMS, per-row SIM selection by name."""
 
     def _tab_sms(self):
-        tab = ttk.Frame(self.nb, padding=8)
-        self.nb.add(tab, text="SMS Command")
+        tab = self._scrollable_tab("SMS Command", padding=8)
 
         # ── Token row (stored in Windows Credential Manager) ──
         tf = ttk.LabelFrame(tab, text="SemySMS token (stored securely on this PC)", padding=6)

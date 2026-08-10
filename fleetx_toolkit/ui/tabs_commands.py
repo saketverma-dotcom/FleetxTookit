@@ -34,8 +34,7 @@ class CommandTabsMixin:
         return [f"{c['name']}  [{c['id'][:8]}…]  ({c['deviceType']}, {c['style']})"
                 for c in self.commands]
     def _tab_send_command(self):
-        tab = ttk.Frame(self.nb, padding=8)
-        self.nb.add(tab, text="Send Command")
+        tab = self._scrollable_tab("Send Command", padding=8)
 
         f = ttk.LabelFrame(tab, text="Command (scroll to pick from library)", padding=6)
         f.pack(fill="x", pady=2)
@@ -166,8 +165,7 @@ class CommandTabsMixin:
                                 parent=win)
         ttk.Button(cf, text="Parse & Add", command=add_curl).pack(anchor="w", pady=4)
     def _tab_seq_commands(self):
-        tab = ttk.Frame(self.nb, padding=8)
-        self.nb.add(tab, text="Sequential 2-Phase")
+        tab = self._scrollable_tab("Sequential 2-Phase", padding=8)
 
         f = ttk.Frame(tab); f.pack(fill="x", pady=2)
         ttk.Label(f, text="Phase 1:").grid(row=0, column=0, sticky="e")
