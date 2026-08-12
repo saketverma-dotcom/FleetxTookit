@@ -15,7 +15,7 @@ DELAY_MS    = 1250
 TOKEN_PARAM = "udbhav"
 MOBILE_PARAM = "5754236272120"
 
-APP_VERSION = "3.8"
+APP_VERSION = "3.8.1"
 
 CRED_FILE     = os.path.join(os.path.expanduser("~"), ".fleetx_toolkit_creds.json")
 SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".fleetx_toolkit_settings.json")
@@ -94,6 +94,7 @@ ASSIGNEE_DIRECTORY = {
     "Vinay Tyagi":        272420,
     "Himanshu Gupta":     952546,
     "Faiyaz Alam":        921620,
+    "Divya Rai":          3934290,
 }
 
 

@@ -181,38 +181,52 @@ class MiscTabsMixin:
         for w in self.pick_frame.winfo_children():
             w.destroy()
 
-        ttk.Label(self.pick_frame, text="Order", font=("Segoe UI", 9, "bold"),
-                  width=6).grid(row=0, column=0)
-        ttk.Label(self.pick_frame, text="", width=3).grid(row=0, column=1)
-        ttk.Label(self.pick_frame, text="Name", font=("Segoe UI", 9, "bold"),
-                  width=22, anchor="w").grid(row=0, column=2, sticky="w")
-        ttk.Label(self.pick_frame, text="Assignee ID", font=("Segoe UI", 9, "bold"),
-                  width=12).grid(row=0, column=3)
-        ttk.Label(self.pick_frame, text="Count", font=("Segoe UI", 9, "bold"),
-                  width=8).grid(row=0, column=4)
+        # Two side-by-side column-groups to save vertical space. The single
+        # logical order (self.assignee_order) is filled left-group first, then
+        # right-group; ▲▼ still reorder within that one logical sequence.
+        names = self.assignee_order
+        n = len(names)
+        half = (n + 1) // 2
+        groups = [names[:half], names[half:]]
 
-        for ri, name in enumerate(self.assignee_order, start=1):
-            d = self.assignee_pick[name]
-            # ▲▼ buttons
-            btnf = ttk.Frame(self.pick_frame)
-            btnf.grid(row=ri, column=0)
-            up = ttk.Button(btnf, text="▲", width=2,
-                            command=lambda n=name: self._move_assignee(n, -1))
-            up.pack(side="left")
-            dn = ttk.Button(btnf, text="▼", width=2,
-                            command=lambda n=name: self._move_assignee(n, +1))
-            dn.pack(side="left")
-            if ri == 1:
-                up.state(["disabled"])
-            if ri == len(self.assignee_order):
-                dn.state(["disabled"])
+        def header(parent):
+            ttk.Label(parent, text="Order", font=("Segoe UI", 9, "bold"),
+                      width=6).grid(row=0, column=0)
+            ttk.Label(parent, text="", width=3).grid(row=0, column=1)
+            ttk.Label(parent, text="Name", font=("Segoe UI", 9, "bold"),
+                      width=18, anchor="w").grid(row=0, column=2, sticky="w")
+            ttk.Label(parent, text="ID", font=("Segoe UI", 9, "bold"),
+                      width=10).grid(row=0, column=3)
+            ttk.Label(parent, text="Count", font=("Segoe UI", 9, "bold"),
+                      width=7).grid(row=0, column=4)
 
-            ttk.Checkbutton(self.pick_frame, variable=d["on"]).grid(row=ri, column=1)
-            ttk.Label(self.pick_frame, text=name, anchor="w", width=22).grid(
-                row=ri, column=2, sticky="w")
-            ttk.Label(self.pick_frame, text=str(d["id"]), width=12).grid(row=ri, column=3)
-            ttk.Entry(self.pick_frame, textvariable=d["count"], width=8).grid(
-                row=ri, column=4, padx=2)
+        col_group_frames = []
+        for gi, group in enumerate(groups):
+            gf = ttk.Frame(self.pick_frame)
+            gf.grid(row=0, column=gi, sticky="n", padx=(0 if gi == 0 else 18, 0))
+            col_group_frames.append(gf)
+            header(gf)
+            for local_i, name in enumerate(group, start=1):
+                global_i = (gi * half) + local_i          # 1-based position in full order
+                d = self.assignee_pick[name]
+                btnf = ttk.Frame(gf); btnf.grid(row=local_i, column=0)
+                up = ttk.Button(btnf, text="▲", width=2,
+                                command=lambda nm=name: self._move_assignee(nm, -1))
+                up.pack(side="left")
+                dn = ttk.Button(btnf, text="▼", width=2,
+                                command=lambda nm=name: self._move_assignee(nm, +1))
+                dn.pack(side="left")
+                if global_i == 1:
+                    up.state(["disabled"])
+                if global_i == n:
+                    dn.state(["disabled"])
+                ttk.Checkbutton(gf, variable=d["on"]).grid(row=local_i, column=1)
+                ttk.Label(gf, text=name, anchor="w", width=18).grid(
+                    row=local_i, column=2, sticky="w")
+                ttk.Label(gf, text=str(d["id"]), width=10).grid(row=local_i, column=3)
+                ttk.Entry(gf, textvariable=d["count"], width=7).grid(
+                    row=local_i, column=4, padx=2)
+
     def _move_assignee(self, name, delta):
         i = self.assignee_order.index(name)
         j = i + delta
