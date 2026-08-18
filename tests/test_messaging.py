@@ -202,3 +202,17 @@ class TestUIHelpers:
              "+9111": [{"id": 2, "phone": "+9111", "msg": "b",
                         "date": "2026-01-09 16:00", "dir": "in"}]}
         assert M.filter_threads(t, "", unread={"+9111"}) == ["+9111"]
+
+
+class TestPollBackoff:
+    def test_active_stays_fast(self):
+        assert M.next_poll_interval(0) == 7
+        assert M.next_poll_interval(4) == 7
+
+    def test_steps_up_when_idle(self):
+        assert M.next_poll_interval(5) == 15
+        assert M.next_poll_interval(14) == 15
+        assert M.next_poll_interval(15) == 30
+
+    def test_capped(self):
+        assert M.next_poll_interval(1000) == M.POLL_MAX == 30

@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 import requests
+from ..http import session
 
 from .. import access_control, state
 from ..access_control import (allowed_tabs_for, fetch_remote_access, is_admin,
@@ -76,7 +77,7 @@ class DeviceTabsMixin:
                        "deviceSupplier": "CLIENT", "sim": sim, "mobile": sim,
                        "serialNumber": str(rec.get("serial_number", "")).strip()}
             payload = {k: v for k, v in payload.items() if v not in (None, "", "None")}
-            r = requests.post(f"{API_BASE}/api/v1/devices/", json=payload,
+            r = session.post(f"{API_BASE}/api/v1/devices/", json=payload,
                               headers=api_headers(self.token), timeout=30)
             return (dev_id, sim), r
         self._loop(records, "Device Register", fn, ["ID", "SIM"])
@@ -88,7 +89,7 @@ class DeviceTabsMixin:
         def fn(imei):
             payload = {"id": int(imei), "imei": int(imei),
                        "deviceType": dtype, "deviceSupplier": "CLIENT"}
-            r = requests.post(f"{API_BASE}/api/v1/devices/", json=payload,
+            r = session.post(f"{API_BASE}/api/v1/devices/", json=payload,
                               headers=api_headers(self.token), timeout=30)
             return (imei, dtype), r
         self._loop(imeis, "Camera Device Add", fn, ["IMEI", "Type"])
@@ -121,7 +122,7 @@ class DeviceTabsMixin:
                        "simStatus": self.sim_status.get(),
                        "simSupplier": self.sim_provider.get(),
                        "reveived_date": self.sim_date.get()}
-            r = requests.post(f"{API_BASE}/api/v1/inventory/sim", json=payload,
+            r = session.post(f"{API_BASE}/api/v1/inventory/sim", json=payload,
                               headers=api_headers(self.token), timeout=30)
             return (sim, self.sim_provider.get()), r
         self._loop(sims, "SIM Inventory Add", fn, ["SIM", "Provider"])
@@ -151,7 +152,7 @@ class DeviceTabsMixin:
             did = rec.get("device_id", "")
             sim = str(rec.get("sim", "")).strip()
             mob = str(rec.get("mobile", sim)).strip()
-            r = requests.put(f"{API_BASE}/api/v1/devices/{did}",
+            r = session.put(f"{API_BASE}/api/v1/devices/{did}",
                              json={"sim": sim, "mobile": mob},
                              headers=api_headers(self.token), timeout=30)
             return (did, sim), r
@@ -185,7 +186,7 @@ class DeviceTabsMixin:
 
         def fn(pair):
             device_id, vehicle_id = pair
-            r = requests.post(f"{API_BASE}/api/v1/vehicles/device",
+            r = session.post(f"{API_BASE}/api/v1/vehicles/device",
                               files={"deviceId": (None, device_id),
                                      "vehicleId": (None, vehicle_id)},
                               headers={k: v for k, v in api_headers(self.token).items()

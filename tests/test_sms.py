@@ -193,9 +193,9 @@ class TestAccessSavePreservesMeta:
         class P:
             status_code = 200
 
-        monkeypatch.setattr(acmod.requests, "get",
+        monkeypatch.setattr(acmod.session, "get",
                             lambda *a, **k: G())
-        monkeypatch.setattr(acmod.requests, "patch",
+        monkeypatch.setattr(acmod.session, "patch",
                             lambda *a, **k: (captured.update(body=k["json"]) or P()))
         monkeypatch.setattr(acmod, "ACCESS_FILE", "/tmp/_acc_test.json")
 
@@ -224,8 +224,8 @@ class TestAccessSavePreservesMeta:
                 return {"files": {"fleetx_access.json":
                                   {"content": _json.dumps(live)}}}
 
-        monkeypatch.setattr(acmod.requests, "get", lambda *a, **k: G())
-        monkeypatch.setattr(acmod.requests, "patch",
+        monkeypatch.setattr(acmod.session, "get", lambda *a, **k: G())
+        monkeypatch.setattr(acmod.session, "patch",
                             lambda *a, **k: (captured.update(body=k["json"])
                                              or type("P", (), {"status_code": 200})()))
         monkeypatch.setattr(acmod, "ACCESS_FILE", "/tmp/_acc_test2.json")

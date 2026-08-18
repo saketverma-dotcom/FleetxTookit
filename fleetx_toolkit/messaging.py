@@ -239,3 +239,23 @@ def filter_threads(threads, query="", unread=None):
                 continue
         out.append(phone)
     return out
+
+
+# ─────────────── adaptive poll interval (v3.10 performance) ───────────────
+
+POLL_BASE      = 7      # seconds, when a conversation is active
+POLL_MAX       = 30     # never wait longer than this
+IDLE_STEPS     = (7, 15, 30)   # ladder as idle cycles accumulate
+
+
+def next_poll_interval(idle_cycles):
+    """Seconds to wait before the next poll, given how many consecutive polls
+    returned nothing new. Keeps 7s while active, stretches to 30s when quiet —
+    cutting API load a lot without hurting responsiveness in a live chat."""
+    if idle_cycles <= 0:
+        return IDLE_STEPS[0]
+    if idle_cycles < 5:
+        return IDLE_STEPS[0]
+    if idle_cycles < 15:
+        return IDLE_STEPS[1]
+    return IDLE_STEPS[2]

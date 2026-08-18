@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 import requests
+from ..http import session
 
 from .. import access_control, state
 from ..access_control import (allowed_tabs_for, fetch_remote_access, is_admin,
@@ -55,6 +56,13 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         A small link switches to FleetX Tools for those who need the platform."""
         for w in self.winfo_children():
             w.destroy()
+        # top bar: version + Update button (available to SMS-only users too)
+        topbar = ttk.Frame(self, padding=(10, 6))
+        topbar.pack(fill="x")
+        ttk.Label(topbar, text=f"FleetX SMS / Messaging   |   v{APP_VERSION}",
+                  foreground="gray").pack(side="left")
+        self._add_update_button(topbar)
+
         self._sms_front = ttk.Frame(self, padding=30)
         self._sms_front.pack(fill="both", expand=True)
         # host the SMS auth gate directly at top level
@@ -63,6 +71,18 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         # secondary access to FleetX Tools
         link = ttk.Frame(self._sms_front); link.pack(side="bottom", pady=8)
         ttk.Button(link, text="FleetX Tools →", command=self._switch_to_fleetx).pack()
+
+    def _add_update_button(self, parent):
+        """Show the ⬆ Update button if a newer version is published. Used by
+        both the FleetX header and the standalone SMS front door."""
+        try:
+            upd = check_update()
+        except Exception:
+            upd = None
+        if upd:
+            ttk.Button(parent, text=f"⬆ Update to v{upd[0]}",
+                       command=lambda u=upd: self._do_self_update(*u)).pack(side="left", padx=10)
+        return upd
 
     def _switch_to_fleetx(self):
         for w in self.winfo_children():
@@ -159,7 +179,7 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         resp = None
         last_err = ""
         try:
-            resp = requests.post(LOGIN_URL, files=fields, headers=login_headers,
+            resp = session.post(LOGIN_URL, files=fields, headers=login_headers,
                                  timeout=30, allow_redirects=True)
         except Exception as e:
             last_err = str(e)
@@ -328,10 +348,7 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         ttk.Label(top, text=f"Logged in: {who}  [{role}]   |   v{APP_VERSION}   |   "
                             f"Token: {self.token[:8]}...",
                   foreground="green").pack(side="left")
-        upd = check_update()
-        if upd:
-            ttk.Button(top, text=f"⬆ Update to v{upd[0]}",
-                       command=lambda u=upd: self._do_self_update(*u)).pack(side="left", padx=10)
+        self._add_update_button(top)
         ttk.Button(top, text="Logout", command=self._logout).pack(side="right")
 
         # Runtime settings (persisted)
@@ -375,8 +392,10 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         # SMS Command + Messaging live behind their OWN email+password gate
         # (independent of the FleetX Bearer token), if the user is allowed the
         # "Messaging" controllable tab.
-        if "Messaging" in allowed or "SMS Command" in allowed:
-            self._tab_sms_messaging()
+        # SMS Command + Messaging have their OWN email+password login, so they
+        # are always reachable from FleetX Tools — access is decided by that
+        # login, not by the FleetX access list.
+        self._tab_sms_messaging()
 
         # Settings tab — available to everyone
         self._tab_settings()
@@ -506,8 +525,25 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
             return
         box.config(state="normal")
         box.insert("end", msg + "\n", tag)
+        # PERF: cap the log so long sessions don't degrade the Text widget.
+        self._trim_log(box)
         box.see("end")
         box.config(state="disabled")
+
+    LOG_MAX_LINES = 2000
+
+    @staticmethod
+    def _trim_log_static(box, max_lines=2000):
+        """Drop the oldest lines once the log exceeds max_lines."""
+        try:
+            total = int(box.index("end-1c").split(".")[0])
+        except Exception:
+            return
+        if total > max_lines:
+            box.delete("1.0", f"{total - max_lines + 1}.0")
+
+    def _trim_log(self, box):
+        self._trim_log_static(box, self.LOG_MAX_LINES)
     def _ui_error(self, title, msg):
         if threading.current_thread() is threading.main_thread():
             messagebox.showerror(title, msg)

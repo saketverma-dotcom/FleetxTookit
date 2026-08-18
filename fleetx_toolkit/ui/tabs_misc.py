@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 import requests
+from ..http import session
 
 from .. import access_control, state
 from ..access_control import (allowed_tabs_for, fetch_remote_access, is_admin,
@@ -84,7 +85,7 @@ class MiscTabsMixin:
         stype = self.sensor_var.get().strip()
 
         def fn(vid):
-            r = requests.patch(f"{API_BASE}/api/v1/vehicles/{vid}",
+            r = session.patch(f"{API_BASE}/api/v1/vehicles/{vid}",
                                json={"id": int(vid), "sensorType": stype},
                                headers=api_headers(self.token, content_type="application/json"),
                                timeout=30)
@@ -129,7 +130,7 @@ class MiscTabsMixin:
                        "type": self.asset_type.get().strip(),
                        "productId": int(aid), "status": "ACTIVE",
                        "issuedToUserId": int(self.asset_user.get() or 0)}
-            r = requests.post(f"{API_BASE}/api/v1/assets", json=payload,
+            r = session.post(f"{API_BASE}/api/v1/assets", json=payload,
                               headers=api_headers(self.token, content_type="application/json"),
                               timeout=30)
             return (aid, self.asset_model.get()), r
@@ -139,7 +140,7 @@ class MiscTabsMixin:
         if not ids: return
 
         def fn(aid):
-            r = requests.patch(f"{API_BASE}/api/v1/assets/update",
+            r = session.patch(f"{API_BASE}/api/v1/assets/update",
                                json={"assetId": str(aid),
                                      "supplier": self.asset_supplier.get().strip()},
                                headers=api_headers(self.token, content_type="application/json"),
@@ -277,7 +278,7 @@ class MiscTabsMixin:
 
         def fn(pair):
             tid, aid = pair
-            r = requests.put(f"{API_BASE}/api/v1/internal/issue/change-assignment",
+            r = session.put(f"{API_BASE}/api/v1/internal/issue/change-assignment",
                              json={"id": int(tid), "assignedToId": int(aid)},
                              headers=api_headers(self.token), timeout=30)
             return (tid, id_to_name.get(aid, aid)), r

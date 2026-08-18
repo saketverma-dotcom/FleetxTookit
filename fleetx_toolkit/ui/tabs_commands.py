@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 import requests
+from ..http import session
 
 from .. import access_control, state
 from ..access_control import (allowed_tabs_for, fetch_remote_access, is_admin,
@@ -76,13 +77,13 @@ class CommandTabsMixin:
                     "userEmail": state.user_email or "toolkit@fleetx.io",
                     "commandId": cmd["id"], "commandName": cmd["name"],
                     "deviceType": cmd["deviceType"]}
-            return requests.post(f"{APP_BASE}/trigger/sendcommands", data=data,
+            return session.post(f"{APP_BASE}/trigger/sendcommands", data=data,
                                  headers=api_headers(self.token, form=True), timeout=30)
         payload = {"commandId": cmd["id"], "commandName": cmd["name"], "imei": imei,
                    "token": TOKEN_PARAM, "mobile": MOBILE_PARAM,
                    "deviceType": cmd["deviceType"],
                    "userEmail": state.user_email or "toolkit@fleetx.io"}
-        return requests.post(f"{APP_BASE}/trigger/sendcommands", json=payload,
+        return session.post(f"{APP_BASE}/trigger/sendcommands", json=payload,
                              headers=api_headers(self.token), timeout=30)
     def _open_command_manager(self):
         win = tk.Toplevel(self)

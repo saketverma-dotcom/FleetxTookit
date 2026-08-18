@@ -6,6 +6,7 @@ import subprocess
 import sys
 
 import requests
+from .http import session
 
 from .access_control import get_remote_meta
 from .config import APP_VERSION
@@ -34,7 +35,7 @@ def download_update(url, sha256, progress_cb=None):
     new_path = exe + ".new"
     try:
         h = hashlib.sha256()
-        with requests.get(url, stream=True, timeout=180,
+        with session.get(url, stream=True, timeout=180,
                           headers={"User-Agent": "FleetXToolkit"}) as r:
             if r.status_code != 200:
                 return None, f"Download HTTP {r.status_code}"

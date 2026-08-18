@@ -23,6 +23,7 @@ import hashlib
 import json
 
 import requests
+from .http import session
 
 # Dedicated user/token Gist for the SMS+Messaging feature (public, obscure URL).
 # Raw URL is read with no credential; the API URL is used for admin writes.
@@ -86,7 +87,7 @@ def apply_user_change(store, action, email, password=None, admin=None):
 def load_store():
     """Read the public user/token Gist. Returns dict, or None on failure."""
     try:
-        r = requests.get(SMS_GIST_RAW, timeout=20,
+        r = session.get(SMS_GIST_RAW, timeout=20,
                          headers={"User-Agent": "FleetXSMS"})
         if r.status_code == 200:
             return json.loads(r.text)
@@ -100,7 +101,7 @@ def push_store(store, gh_token):
     try:
         payload = {"files": {SMS_GIST_FILENAME: {
             "content": json.dumps(store, indent=2)}}}
-        r = requests.patch(
+        r = session.patch(
             SMS_GIST_API, json=payload, timeout=20,
             headers={"Authorization": f"Bearer {gh_token}",
                      "Accept": "application/vnd.github+json",

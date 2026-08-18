@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 import requests
+from ..http import session
 
 from ..config import (SEMYSMS_API, SEMYSMS_SIM_NAMES, sim_id_for_name)
 from ..io_utils import load_excel_records
@@ -179,7 +180,7 @@ class SmsTabMixin:
 
         def fn(row):
             phone, msg, sim_id = row
-            r = requests.post(SEMYSMS_API,
+            r = session.post(SEMYSMS_API,
                               data=build_sms_params(tok, sim_id, phone, msg), timeout=30)
             try:
                 ok = sms_success(r.json())

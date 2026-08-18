@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 import requests
+from ..http import session
 
 from ..config import (MESSAGING_SIMS, MESSAGING_SIM_NAMES, MESSAGING_POLL_SECONDS,
                       sim_id_for_name)
@@ -222,6 +223,7 @@ class MessagingTabMixin:
                     "No SemySMS token. Save it in the SMS Command tab first.")
                 return
         self._msg_polling = True
+        self._msg_idle_cycles = 0
         self.msg_toggle_btn.config(text="⏸ Stop")
         self.msg_status.config(text=f"Watching {self.msg_sim.get()}…", fg="green")
         self._msg_mark_activity()
@@ -261,16 +263,18 @@ class MessagingTabMixin:
             device = self._msg_device_id
             url, params = M.build_inbox_request(token, device, since_id=self._msg_last_id)
             try:
-                r = requests.get(url, params=params, timeout=20)
+                r = session.get(url, params=params, timeout=20)
                 msgs = M.parse_inbox(r.json())
             except Exception as e:
                 self.after(0, lambda e=e: self.msg_status.config(
                     text=f"Poll error: {e}", fg="red"))
                 msgs = []
             # ignore results if the user switched SIM mid-request
+            fresh_count = 0
             if device == self._msg_device_id and msgs:
                 fresh = M.new_since(msgs, self._msg_last_id)
                 self._msg_last_id = M.max_id(msgs, self._msg_last_id)
+                fresh_count = len(fresh)
                 if fresh:
                     self.after(0, lambda f=fresh: self._msg_ingest(f))
             # poll delivery status for still-pending sent messages
@@ -278,14 +282,21 @@ class MessagingTabMixin:
                 ids = list(self._msg_pending_status.keys())
                 ourl, oparams = M.build_outbox_request(token, device, ids)
                 try:
-                    ro = requests.get(ourl, params=oparams, timeout=20)
+                    ro = session.get(ourl, params=oparams, timeout=20)
                     statuses = M.parse_outbox_status(ro.json())
                 except Exception:
                     statuses = {}
                 if statuses:
                     self.after(0, lambda s=statuses: self._msg_apply_status(s))
 
-            for _ in range(MESSAGING_POLL_SECONDS * 2):
+            # Adaptive backoff: stay fast (7s) while a conversation is live,
+            # stretch to 15s/30s when nothing is arriving. Cuts idle API load.
+            if fresh_count:
+                self._msg_idle_cycles = 0
+            else:
+                self._msg_idle_cycles = getattr(self, "_msg_idle_cycles", 0) + 1
+            wait_s = M.next_poll_interval(self._msg_idle_cycles)
+            for _ in range(int(wait_s * 2)):
                 if not self._msg_polling:
                     break
                 threading.Event().wait(0.5)
@@ -381,6 +392,7 @@ class MessagingTabMixin:
 
     def _msg_open_phone(self, phone):
         self._msg_mark_activity()
+        self._msg_idle_cycles = 0
         self._msg_active_phone = phone
         self._msg_unread.discard(phone)      # opening marks read
         # render the thread immediately (cheap, feels responsive)
@@ -431,6 +443,7 @@ class MessagingTabMixin:
 
     def _msg_send_reply(self):
         self._msg_mark_activity()
+        self._msg_idle_cycles = 0      # expect a reply — poll fast again
         phone = self._msg_active_phone
         if not phone:
             self._ui_error("Messaging", "Open a conversation first.")
@@ -447,7 +460,7 @@ class MessagingTabMixin:
             ok = False
             sms_id = 0
             try:
-                r = requests.post(url, data=data, timeout=30)
+                r = session.post(url, data=data, timeout=30)
                 body = r.json() or {}
                 ok = str(body.get("code")) == "0"
                 sms_id = int(body.get("id") or 0)

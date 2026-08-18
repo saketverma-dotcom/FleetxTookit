@@ -4,6 +4,7 @@ import os
 import time
 
 import requests
+from .http import session
 
 from .config import (ACCESS_FILE, ACCESS_URL, ADMIN_EMAILS, ALLOWED_DOMAIN,
                      CONTROLLABLE_TABS, GIST_API, GIST_FILENAME)
@@ -78,7 +79,7 @@ def push_access_to_gist(access_map, gh_token):
     # live Gist as the source of truth so nothing stale is written back.
     merged = {k: v for k, v in access_map.items() if not str(k).startswith("_")}
     try:
-        cur = requests.get(GIST_API, headers=hdrs, timeout=20).json()
+        cur = session.get(GIST_API, headers=hdrs, timeout=20).json()
         old = json.loads(cur["files"][GIST_FILENAME]["content"])
         for k, v in old.items():
             if str(k).startswith("_"):
@@ -88,7 +89,7 @@ def push_access_to_gist(access_map, gh_token):
         pass
     try:
         payload = {"files": {GIST_FILENAME: {"content": json.dumps(merged, indent=2)}}}
-        r = requests.patch(
+        r = session.patch(
             GIST_API,
             json=payload,
             headers=hdrs,
@@ -114,7 +115,7 @@ def fetch_remote_access():
     try:
         buster = str(int(time.time()))
         url = ACCESS_URL + ("&" if "?" in ACCESS_URL else "?") + "_cb=" + buster
-        r = requests.get(url, headers={
+        r = session.get(url, headers={
             "User-Agent": "FleetXToolkit",
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache",

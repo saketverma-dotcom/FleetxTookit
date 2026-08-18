@@ -118,26 +118,32 @@ class SmsAuthMixin:
                             + ("  (admin)" if self._sms_is_admin else ""),
                   foreground="green").pack(side="left")
         ttk.Button(bar, text="Sign out", command=self._sms_signout).pack(side="right")
+        self._add_update_button(bar)
 
-        # Live Log lives below the inner notebook and is shown ONLY on the
-        # SMS Command tab (not Messaging), for every user.
-        import tkinter as tk
-        from tkinter import scrolledtext
-        self._sms_log_frame = ttk.LabelFrame(self._sms_content, text="Live Log", padding=4)
-        self._sms_log_box = scrolledtext.ScrolledText(self._sms_log_frame, height=7,
-                                                      state="disabled", font=("Consolas", 9))
+
+        # Notebook + Live Log in a draggable split, so the log is RESIZABLE
+        # here too (matching FleetX Tools behaviour).
+        self._sms_paned = ttk.PanedWindow(self._sms_content, orient="vertical")
+        self._sms_paned.pack(fill="both", expand=True)
+        nb_holder = ttk.Frame(self._sms_paned)
+        inner = ttk.Notebook(nb_holder)
+        inner.pack(fill="both", expand=True)
+        self._sms_paned.add(nb_holder, weight=4)
+        self._sms_inner_nb = inner
+        self._sms_build_feature_tabs(inner)
+
+        # build the (resizable) Live Log pane now that the paned window exists
+        from tkinter import scrolledtext as _st
+        self._sms_log_frame = ttk.LabelFrame(
+            self._sms_paned, text="Live Log (drag divider above to resize)", padding=4)
+        self._sms_log_box = _st.ScrolledText(self._sms_log_frame, height=7,
+                                             state="disabled", font=("Consolas", 9))
         self._sms_log_box.pack(fill="both", expand=True)
         self._sms_log_box.tag_config("ok", foreground="green")
         self._sms_log_box.tag_config("err", foreground="red")
         self._sms_log_box.tag_config("info", foreground="blue")
-        # In standalone mode there is no main log — route all logging here.
-        if not hasattr(self, "log_box") or self.log_box is None:
+        if not getattr(self, "log_box", None):
             self.log_box = self._sms_log_box
-
-        inner = ttk.Notebook(self._sms_content)
-        inner.pack(fill="both", expand=True)
-        self._sms_inner_nb = inner
-        self._sms_build_feature_tabs(inner)
         if self._sms_is_admin:
             self._sms_build_admin_tab(inner)
         inner.bind("<<NotebookTabChanged>>", self._sms_toggle_log)
@@ -155,6 +161,7 @@ class SmsAuthMixin:
             return
         box.config(state="normal")
         box.insert("end", msg + "\n", tag)
+        self._trim_log(box)
         box.see("end")
         box.config(state="disabled")
 
@@ -164,12 +171,16 @@ class SmsAuthMixin:
             current = self._sms_inner_nb.tab(self._sms_inner_nb.select(), "text")
         except Exception:
             return
+        if self._sms_log_frame is None:
+            return
+        panes = self._sms_paned.panes()
+        pane_id = str(self._sms_log_frame)
         if current == "SMS Command":
-            if not self._sms_log_frame.winfo_ismapped():
-                self._sms_log_frame.pack(fill="x", side="bottom", before=self._sms_inner_nb)
+            if pane_id not in panes:
+                self._sms_paned.add(self._sms_log_frame, weight=1)
         else:
-            if self._sms_log_frame.winfo_ismapped():
-                self._sms_log_frame.pack_forget()
+            if pane_id in panes:
+                self._sms_paned.forget(self._sms_log_frame)
 
     def _sms_signout(self):
         self._sms_authed = False
