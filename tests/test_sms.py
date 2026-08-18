@@ -289,3 +289,61 @@ class TestSharedSensorTypes:
         monkeypatch.setattr(ac, "_REMOTE_META",
                             {"_sensor_types": "oops"}, raising=False)
         assert ac.get_shared_sensor_types() == []
+
+
+class TestSmsAuth:
+    def _seed(self):
+        from fleetx_toolkit import sms_auth as A
+        store = {"salt": "s4lt", "users": {}}
+        return A.apply_user_change(store, "set", "saket.verma@fleetx.io",
+                                   password="yvgkqwwpbr", admin=True)
+
+    def test_admin_login(self):
+        from fleetx_toolkit import sms_auth as A
+        ok, adm, why = A.check_login(self._seed(), "saket.verma@fleetx.io", "yvgkqwwpbr")
+        assert ok and adm
+
+    def test_wrong_password(self):
+        from fleetx_toolkit import sms_auth as A
+        ok, adm, why = A.check_login(self._seed(), "saket.verma@fleetx.io", "nope")
+        assert not ok and "Incorrect" in why
+
+    def test_unknown_user(self):
+        from fleetx_toolkit import sms_auth as A
+        ok, adm, why = A.check_login(self._seed(), "ghost@fleetx.io", "x")
+        assert not ok and "Unknown" in why
+
+    def test_email_case_insensitive(self):
+        from fleetx_toolkit import sms_auth as A
+        ok, _, _ = A.check_login(self._seed(), "  SAKET.VERMA@Fleetx.IO ", "yvgkqwwpbr")
+        assert ok
+
+    def test_password_stored_hashed_not_plaintext(self):
+        import json
+        assert "yvgkqwwpbr" not in json.dumps(self._seed())
+
+    def test_add_reset_delete(self):
+        from fleetx_toolkit import sms_auth as A
+        s = self._seed()
+        s = A.apply_user_change(s, "set", "u@fleetx.io", password="p1", admin=False)
+        assert A.check_login(s, "u@fleetx.io", "p1")[0]
+        s = A.apply_user_change(s, "set", "u@fleetx.io", password="p2")
+        assert not A.check_login(s, "u@fleetx.io", "p1")[0]
+        assert A.check_login(s, "u@fleetx.io", "p2")[0]
+        s = A.apply_user_change(s, "delete", "u@fleetx.io")
+        assert not A.check_login(s, "u@fleetx.io", "p2")[0]
+
+    def test_store_holds_no_token(self):
+        # security: the auth Gist must NOT contain a SemySMS token anymore
+        import json
+        assert "_semysms_token" not in json.dumps(self._seed())
+        assert not hasattr(__import__("fleetx_toolkit.sms_auth",
+                                      fromlist=["x"]), "get_semysms_token")
+
+    def test_admin_flag_toggle(self):
+        from fleetx_toolkit import sms_auth as A
+        s = self._seed()
+        s = A.apply_user_change(s, "set", "u@fleetx.io", password="p", admin=False)
+        assert A.check_login(s, "u@fleetx.io", "p")[1] is False
+        s = A.apply_user_change(s, "set", "u@fleetx.io", admin=True)
+        assert A.check_login(s, "u@fleetx.io", "p")[1] is True   # pw preserved, admin flipped

@@ -19,7 +19,7 @@ class SmsTabMixin:
         # ── Token row (stored in Windows Credential Manager) ──
         tf = ttk.LabelFrame(tab, text="SemySMS token (stored securely on this PC)", padding=6)
         tf.pack(fill="x")
-        self.sms_token = tk.StringVar(value=load_sms_token())
+        self.sms_token = tk.StringVar(value=self._current_sms_token())
         ttk.Entry(tf, textvariable=self.sms_token, width=40, show="•").pack(side="left", padx=4)
         ttk.Button(tf, text="Save token", command=self._save_sms_token).pack(side="left", padx=4)
         self.sms_token_status = ttk.Label(tf, text="", foreground="green")
@@ -157,7 +157,7 @@ class SmsTabMixin:
         return rows
 
     def _run_sms(self):
-        tok = self.sms_token.get().strip() or load_sms_token()
+        tok = self.sms_token.get().strip() or self._current_sms_token()
         if not tok:
             self.log("  ✗ No SemySMS token — enter and Save it first.", "err")
             self._ui_error("SMS", "Enter and save the SemySMS token first.")

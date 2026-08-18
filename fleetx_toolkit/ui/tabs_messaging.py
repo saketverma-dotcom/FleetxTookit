@@ -180,9 +180,9 @@ class MessagingTabMixin:
                 messagebox.showerror("New message", "Enter a valid number.", parent=dlg); return
             if not text:
                 messagebox.showerror("New message", "Enter a message.", parent=dlg); return
-            if not load_sms_token():
+            if not self._current_sms_token():
                 messagebox.showerror("New message",
-                    "No SemySMS token. Save it in the SMS Command tab first.", parent=dlg); return
+                    "No SemySMS token available (not loaded from login).", parent=dlg); return
             # ensure a thread bucket exists and make it active, then reuse reply path
             self._msg_threads.setdefault(phone, [])
             self._msg_active_phone = phone
@@ -216,8 +216,8 @@ class MessagingTabMixin:
             self.msg_toggle_btn.config(text="▶ Start")
             self.msg_status.config(text="Stopped", fg="gray")
             return
-        if not (self.sms_token.get().strip() if hasattr(self, "sms_token") else load_sms_token()):
-            if not load_sms_token():
+        if not self._current_sms_token():
+            if True:
                 self._ui_error("Messaging",
                     "No SemySMS token. Save it in the SMS Command tab first.")
                 return
@@ -256,7 +256,7 @@ class MessagingTabMixin:
         self._msg_idle_job = self.after(5000, self._msg_schedule_idle_check)
 
     def _msg_poll_loop(self):
-        token = load_sms_token()
+        token = self._current_sms_token()
         while self._msg_polling:
             device = self._msg_device_id
             url, params = M.build_inbox_request(token, device, since_id=self._msg_last_id)
@@ -438,7 +438,7 @@ class MessagingTabMixin:
         text = self.msg_reply.get().strip()
         if not text:
             return
-        token = load_sms_token()
+        token = self._current_sms_token()
         device = self._msg_device_id
         self.msg_reply.set("")
 

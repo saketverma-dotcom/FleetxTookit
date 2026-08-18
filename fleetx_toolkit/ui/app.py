@@ -32,10 +32,11 @@ from .tabs_devices import DeviceTabsMixin
 from .tabs_misc import MiscTabsMixin
 from .tabs_sms import SmsTabMixin
 from .tabs_messaging import MessagingTabMixin
+from .tabs_sms_auth import SmsAuthMixin
 
 
 class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
-                    SmsTabMixin, MessagingTabMixin, AdminTabsMixin, tk.Tk):
+                    SmsTabMixin, MessagingTabMixin, SmsAuthMixin, AdminTabsMixin, tk.Tk):
     """Main window. Core plumbing lives here (login, run loop, settings);
     tab UIs come from the mixins."""
 
@@ -343,12 +344,16 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
             "SensorType":         self._tab_sensor_type,
             "Assets":             self._tab_assets,
             "Tickets":            self._tab_tickets,
-            "SMS Command":        self._tab_sms,
-            "Messaging":          self._tab_messaging,
         }
         for tab_name in CONTROLLABLE_TABS:
             if tab_name in allowed and tab_name in tab_builders:
                 tab_builders[tab_name]()
+
+        # SMS Command + Messaging live behind their OWN email+password gate
+        # (independent of the FleetX Bearer token), if the user is allowed the
+        # "Messaging" controllable tab.
+        if "Messaging" in allowed or "SMS Command" in allowed:
+            self._tab_sms_messaging()
 
         # Settings tab — available to everyone
         self._tab_settings()
@@ -356,6 +361,30 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         # Admin-only access-control panel (always last, admins only)
         if self.is_admin_user:
             self._tab_user_access()
+
+    def _current_sms_token(self):
+        """SemySMS token — stored LOCALLY per user in Windows Credential Manager
+        (DPAPI). Never comes from the Gist. Entered once after login."""
+        from ..storage import load_sms_token
+        return load_sms_token()
+
+    def _tab_sms_messaging(self):
+        """A single tab hosting the SMS-auth gate; on login it reveals an inner
+        notebook with SMS Command + Messaging (+ admin user management)."""
+        page = ttk.Frame(self.nb)
+        self.nb.add(page, text="SMS / Messaging")
+        self._build_sms_gate(page)
+
+    def _sms_build_feature_tabs(self, inner_nb):
+        """Build the SMS Command + Messaging tabs into the inner notebook.
+        The existing builders target self.nb, so temporarily point it here."""
+        real_nb = self.nb
+        self.nb = inner_nb
+        try:
+            self._tab_sms()
+            self._tab_messaging()
+        finally:
+            self.nb = real_nb
 
         if self.nb.index("end") == 0:
             # No tabs granted — show a friendly placeholder
@@ -372,11 +401,30 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         self.log_box.tag_config("ok", foreground="green")
         self.log_box.tag_config("err", foreground="red")
         self.log_box.tag_config("info", foreground="blue")
+        self._log_pane = logf
         self._main_paned.add(logf, weight=1)
 
         btns = ttk.Frame(self)
         btns.pack(fill="x", padx=8, pady=(0, 8))
         ttk.Button(btns, text="STOP current run", command=self._stop).pack(side="right")
+
+        # Live Log is irrelevant on the Messaging tab — hide it there, show
+        # it everywhere else.
+        self.nb.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+
+    def _on_tab_changed(self, _event=None):
+        try:
+            current = self.nb.tab(self.nb.select(), "text")
+        except Exception:
+            return
+        panes = self._main_paned.panes()
+        log_id = str(self._log_pane)
+        if current == "Messaging":
+            if log_id in panes:
+                self._main_paned.forget(self._log_pane)
+        else:
+            if log_id not in panes:
+                self._main_paned.add(self._log_pane, weight=1)
     def _do_self_update(self, latest, url, sha):
         """Download off the main thread, verify, then swap + relaunch."""
         if not getattr(sys, "frozen", False):
