@@ -159,7 +159,7 @@ class SmsTabMixin:
     def _run_sms(self):
         tok = self.sms_token.get().strip() or self._current_sms_token()
         if not tok:
-            self.log("  ✗ No SemySMS token — enter and Save it first.", "err")
+            self._sms_log("  ✗ No SemySMS token — enter and Save it first.", "err")
             self._ui_error("SMS", "Enter and save the SemySMS token first.")
             return
         rows = self._sms_rows()
@@ -173,7 +173,7 @@ class SmsTabMixin:
             if sms_delay < 0:
                 raise ValueError
         except ValueError:
-            self.log(f"  ✗ Invalid SMS delay '{self.sms_delay.get()}' — must be seconds ≥ 0.", "err")
+            self._sms_log(f"  ✗ Invalid SMS delay '{self.sms_delay.get()}' — must be seconds ≥ 0.", "err")
             self._ui_error("SMS", "Delay between SMS must be a number of seconds (e.g. 5).")
             return
 

@@ -437,8 +437,6 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
                 # standalone: keep inner_nb as self.nb so tab logic (log/render)
                 # that references self.nb still resolves
                 self.nb = inner_nb
-        # keep the log-hide-on-Messaging behavior working in the inner notebook
-        inner_nb.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
     def _on_tab_changed(self, _event=None):
         if not hasattr(self, "_main_paned") or not hasattr(self, "_log_pane"):
@@ -449,7 +447,7 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
             return
         panes = self._main_paned.panes()
         log_id = str(self._log_pane)
-        if current == "Messaging":
+        if current in ("SMS / Messaging", "Messaging"):
             if log_id in panes:
                 self._main_paned.forget(self._log_pane)
         else:

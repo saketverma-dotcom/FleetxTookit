@@ -118,13 +118,58 @@ class SmsAuthMixin:
                             + ("  (admin)" if self._sms_is_admin else ""),
                   foreground="green").pack(side="left")
         ttk.Button(bar, text="Sign out", command=self._sms_signout).pack(side="right")
+
+        # Live Log lives below the inner notebook and is shown ONLY on the
+        # SMS Command tab (not Messaging), for every user.
+        import tkinter as tk
+        from tkinter import scrolledtext
+        self._sms_log_frame = ttk.LabelFrame(self._sms_content, text="Live Log", padding=4)
+        self._sms_log_box = scrolledtext.ScrolledText(self._sms_log_frame, height=7,
+                                                      state="disabled", font=("Consolas", 9))
+        self._sms_log_box.pack(fill="both", expand=True)
+        self._sms_log_box.tag_config("ok", foreground="green")
+        self._sms_log_box.tag_config("err", foreground="red")
+        self._sms_log_box.tag_config("info", foreground="blue")
+        # In standalone mode there is no main log — route all logging here.
+        if not hasattr(self, "log_box") or self.log_box is None:
+            self.log_box = self._sms_log_box
+
         inner = ttk.Notebook(self._sms_content)
         inner.pack(fill="both", expand=True)
         self._sms_inner_nb = inner
-        # the actual tabs are built by the existing builders into this notebook
         self._sms_build_feature_tabs(inner)
         if self._sms_is_admin:
             self._sms_build_admin_tab(inner)
+        inner.bind("<<NotebookTabChanged>>", self._sms_toggle_log)
+        self._sms_toggle_log()
+
+    def _sms_log(self, msg, tag=None):
+        """Write to the SMS Command Live Log (its own box). Falls back to the
+        main log() if the SMS log isn't built yet."""
+        box = getattr(self, "_sms_log_box", None)
+        if box is None:
+            return self.log(msg, tag)
+        import threading
+        if threading.current_thread() is not threading.main_thread():
+            self.after(0, lambda: self._sms_log(msg, tag))
+            return
+        box.config(state="normal")
+        box.insert("end", msg + "\n", tag)
+        box.see("end")
+        box.config(state="disabled")
+
+    def _sms_toggle_log(self, _event=None):
+        """Show the Live Log only when the SMS Command inner tab is active."""
+        try:
+            current = self._sms_inner_nb.tab(self._sms_inner_nb.select(), "text")
+        except Exception:
+            return
+        if current == "SMS Command":
+            if not self._sms_log_frame.winfo_ismapped():
+                self._sms_log_frame.pack(fill="x", side="bottom", before=self._sms_inner_nb)
+        else:
+            if self._sms_log_frame.winfo_ismapped():
+                self._sms_log_frame.pack_forget()
 
     def _sms_signout(self):
         self._sms_authed = False

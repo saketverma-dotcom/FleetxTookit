@@ -15,7 +15,7 @@ DELAY_MS    = 1250
 TOKEN_PARAM = "udbhav"
 MOBILE_PARAM = "5754236272120"
 
-APP_VERSION = "3.9.3"
+APP_VERSION = "3.9.4"
 
 CRED_FILE     = os.path.join(os.path.expanduser("~"), ".fleetx_toolkit_creds.json")
 SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".fleetx_toolkit_settings.json")
@@ -64,9 +64,6 @@ SIM_PROVIDERS  = ["ONOMONDO", "TATA", "AERIS", "AIRTEL", "VODAFONE", "BSNL", "JI
 SEMYSMS_API   = "https://semysms.net/api/3/sms.php"
 SEMYSMS_INBOX_API = "https://semysms.net/api/3/inbox_sms.php"   # incoming SMS list
 SEMYSMS_OUTBOX_API = "https://semysms.net/api/3/outbox_sms.php" # outgoing + status
-# Messaging tab (v3.5) is restricted to these two SIMs only:
-MESSAGING_SIMS = {"350374": "Airtel Pulse", "352969": "Voda Pulse"}
-MESSAGING_SIM_NAMES = list(MESSAGING_SIMS.values())
 MESSAGING_POLL_SECONDS = 7
 # device id -> friendly name (dropdown shows the names, API gets the id)
 SEMYSMS_SIMS  = {
@@ -79,6 +76,9 @@ SEMYSMS_SIMS  = {
 }
 SEMYSMS_SIM_NAMES = list(SEMYSMS_SIMS.values())
 _SIM_NAME_TO_ID   = {v: k for k, v in SEMYSMS_SIMS.items()}
+# Messaging can now use all 6 SIMs (previously limited to the two Pulse SIMs).
+MESSAGING_SIMS = dict(SEMYSMS_SIMS)
+MESSAGING_SIM_NAMES = list(MESSAGING_SIMS.values())
 
 def sim_id_for_name(name):
     """Friendly SIM name -> device id, or '' if unknown."""
