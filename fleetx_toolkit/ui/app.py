@@ -42,15 +42,38 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
 
     def __init__(self):
         super().__init__()
-        self.title("FleetX Toolkit v2")
-        self.geometry("960x740")
+        self.title("FleetX SMS / Messaging")
+        self.geometry("1000x740")
         self.token = None
         self.stop_flag = False
         self.is_admin_user = False
         self.commands = load_commands()
+        self._build_sms_front()
+
+    def _build_sms_front(self):
+        """Default front door: SMS/Messaging login only — NO FleetX token.
+        A small link switches to FleetX Tools for those who need the platform."""
+        for w in self.winfo_children():
+            w.destroy()
+        self._sms_front = ttk.Frame(self, padding=30)
+        self._sms_front.pack(fill="both", expand=True)
+        # host the SMS auth gate directly at top level
+        content_host = self._build_sms_gate(self._sms_front)
+        self._sms_standalone = True   # signals: no FleetX context
+        # secondary access to FleetX Tools
+        link = ttk.Frame(self._sms_front); link.pack(side="bottom", pady=8)
+        ttk.Button(link, text="FleetX Tools →", command=self._switch_to_fleetx).pack()
+
+    def _switch_to_fleetx(self):
+        for w in self.winfo_children():
+            w.destroy()
+        self.title("FleetX Toolkit v2")
+        self._sms_standalone = False
         self._build_login()
 
     def _build_login(self):
+        # add a way back to SMS/Messaging from the FleetX login
+        self._fleetx_login_root = True
         self.login_frame = ttk.Frame(self, padding=40)
         self.login_frame.pack(expand=True)
 
@@ -362,6 +385,29 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         if self.is_admin_user:
             self._tab_user_access()
 
+        if self.nb.index("end") == 0:
+            ph = ttk.Frame(self.nb, padding=20)
+            self.nb.add(ph, text="No Access")
+            ttk.Label(ph, text="You don't have access to any tools yet.\n\n"
+                              "Ask the admin (saket.verma@fleetx.io) to grant you access.",
+                      font=("Segoe UI", 11)).pack(pady=40)
+
+        logf = ttk.LabelFrame(self._main_paned,
+                              text="Live Log (drag divider above to resize)", padding=4)
+        self.log_box = scrolledtext.ScrolledText(logf, height=8, state="disabled",
+                                                  font=("Consolas", 9))
+        self.log_box.pack(fill="both", expand=True)
+        self.log_box.tag_config("ok", foreground="green")
+        self.log_box.tag_config("err", foreground="red")
+        self.log_box.tag_config("info", foreground="blue")
+        self._log_pane = logf
+        self._main_paned.add(logf, weight=1)
+
+        btns = ttk.Frame(self)
+        btns.pack(fill="x", padx=8, pady=(0, 8))
+        ttk.Button(btns, text="STOP current run", command=self._stop).pack(side="right")
+        self.nb.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+
     def _current_sms_token(self):
         """SemySMS token — stored LOCALLY per user in Windows Credential Manager
         (DPAPI). Never comes from the Gist. Entered once after login."""
@@ -377,42 +423,26 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
 
     def _sms_build_feature_tabs(self, inner_nb):
         """Build the SMS Command + Messaging tabs into the inner notebook.
-        The existing builders target self.nb, so temporarily point it here."""
-        real_nb = self.nb
+        The existing builders target self.nb, so temporarily point it here.
+        Works in standalone mode (no FleetX notebook) too."""
+        real_nb = getattr(self, "nb", None)
         self.nb = inner_nb
         try:
             self._tab_sms()
             self._tab_messaging()
         finally:
-            self.nb = real_nb
-
-        if self.nb.index("end") == 0:
-            # No tabs granted — show a friendly placeholder
-            ph = ttk.Frame(self.nb, padding=20)
-            self.nb.add(ph, text="No Access")
-            ttk.Label(ph, text="You don't have access to any tools yet.\n\n"
-                              "Ask the admin (saket.verma@fleetx.io) to grant you access.",
-                      font=("Segoe UI", 11)).pack(pady=40)
-
-        logf = ttk.LabelFrame(self._main_paned, text="Live Log (drag divider above to resize)", padding=4)
-        self.log_box = scrolledtext.ScrolledText(logf, height=8, state="disabled",
-                                                  font=("Consolas", 9))
-        self.log_box.pack(fill="both", expand=True)
-        self.log_box.tag_config("ok", foreground="green")
-        self.log_box.tag_config("err", foreground="red")
-        self.log_box.tag_config("info", foreground="blue")
-        self._log_pane = logf
-        self._main_paned.add(logf, weight=1)
-
-        btns = ttk.Frame(self)
-        btns.pack(fill="x", padx=8, pady=(0, 8))
-        ttk.Button(btns, text="STOP current run", command=self._stop).pack(side="right")
-
-        # Live Log is irrelevant on the Messaging tab — hide it there, show
-        # it everywhere else.
-        self.nb.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+            if real_nb is not None:
+                self.nb = real_nb
+            else:
+                # standalone: keep inner_nb as self.nb so tab logic (log/render)
+                # that references self.nb still resolves
+                self.nb = inner_nb
+        # keep the log-hide-on-Messaging behavior working in the inner notebook
+        inner_nb.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
     def _on_tab_changed(self, _event=None):
+        if not hasattr(self, "_main_paned") or not hasattr(self, "_log_pane"):
+            return   # standalone SMS mode: no Live Log to toggle
         try:
             current = self.nb.tab(self.nb.select(), "text")
         except Exception:
@@ -472,10 +502,14 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         if threading.current_thread() is not threading.main_thread():
             self.after(0, lambda: self.log(msg, tag))
             return
-        self.log_box.config(state="normal")
-        self.log_box.insert("end", msg + "\n", tag)
-        self.log_box.see("end")
-        self.log_box.config(state="disabled")
+        # Standalone SMS/Messaging mode has no Live Log widget — no-op there.
+        box = getattr(self, "log_box", None)
+        if box is None:
+            return
+        box.config(state="normal")
+        box.insert("end", msg + "\n", tag)
+        box.see("end")
+        box.config(state="disabled")
     def _ui_error(self, title, msg):
         if threading.current_thread() is threading.main_thread():
             messagebox.showerror(title, msg)

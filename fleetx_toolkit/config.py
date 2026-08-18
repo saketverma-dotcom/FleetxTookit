@@ -15,7 +15,7 @@ DELAY_MS    = 1250
 TOKEN_PARAM = "udbhav"
 MOBILE_PARAM = "5754236272120"
 
-APP_VERSION = "3.9.2"
+APP_VERSION = "3.9.3"
 
 CRED_FILE     = os.path.join(os.path.expanduser("~"), ".fleetx_toolkit_creds.json")
 SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".fleetx_toolkit_settings.json")
