@@ -3,7 +3,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 from .. import sms_auth as A
-from ..storage import load_gh_token, save_gh_token
+from ..storage import (load_gh_token, save_gh_token,
+                       load_sms_login, save_sms_login, clear_sms_login)
 
 
 class SmsAuthMixin:
@@ -17,7 +18,6 @@ class SmsAuthMixin:
         self._sms_is_admin = False
         self._sms_user = None
         self._sms_store = None
-
         wrap = ttk.Frame(parent)
         wrap.pack(fill="both", expand=True)
         self._sms_gate = ttk.Frame(wrap, padding=30)
@@ -26,23 +26,73 @@ class SmsAuthMixin:
 
         ttk.Label(self._sms_gate, text="SMS / Messaging Login",
                   font=("Segoe UI", 14, "bold")).grid(row=0, column=0, columnspan=2, pady=(0, 16))
+        _rem_email, _rem_pw = load_sms_login()
         ttk.Label(self._sms_gate, text="Email:").grid(row=1, column=0, sticky="e", pady=4)
-        self._sms_email = tk.StringVar()
+        self._sms_email = tk.StringVar(value=_rem_email)
         ttk.Entry(self._sms_gate, textvariable=self._sms_email, width=30).grid(
             row=1, column=1, pady=4)
         ttk.Label(self._sms_gate, text="Password:").grid(row=2, column=0, sticky="e", pady=4)
-        self._sms_pass = tk.StringVar()
+        self._sms_pass = tk.StringVar(value=_rem_pw)
         pe = ttk.Entry(self._sms_gate, textvariable=self._sms_pass, width=30, show="•")
         pe.grid(row=2, column=1, pady=4)
         pe.bind("<Return>", lambda e: self._sms_do_login())
+        self._sms_remember = tk.BooleanVar(value=bool(_rem_email))
+        ttk.Checkbutton(self._sms_gate, text="Remember me on this PC",
+                        variable=self._sms_remember).grid(row=3, column=1, sticky="w")
         ttk.Button(self._sms_gate, text="Login", command=self._sms_do_login).grid(
-            row=3, column=0, columnspan=2, pady=12)
+            row=4, column=0, columnspan=2, pady=12)
         self._sms_login_status = ttk.Label(self._sms_gate, text="", foreground="red")
-        self._sms_login_status.grid(row=4, column=0, columnspan=2)
+        self._sms_login_status.grid(row=5, column=0, columnspan=2)
         ttk.Label(self._sms_gate,
                   text="Access is managed by the admin. Contact saket.verma@fleetx.io.",
-                  foreground="gray").grid(row=5, column=0, columnspan=2, pady=(10, 0))
+                  foreground="gray").grid(row=6, column=0, columnspan=2, pady=(10, 0))
         return self._sms_content
+
+    def _sms_try_auto_auth(self):
+        """Skip the second login when the user has already proved their identity
+        via the FleetX Bearer login AND is authorised for SMS by either route:
+
+          • "SMS Command" or "Messaging" ticked for them in User Access (Admin), or
+          • their email is in the admin-managed SMS user list.
+
+        Anyone else still sees the SMS login screen. Admin rights inside the SMS
+        panel come only from the SMS list (admin: true) or ADMIN_EMAILS — a tab
+        grant alone never confers user management.
+        """
+        import threading as _t
+        from .. import state as _state
+        from ..access_control import allowed_tabs_for
+        from ..config import ADMIN_EMAILS
+        email = getattr(_state, "user_email", None)
+        if not email or self._sms_authed:
+            return
+
+        # Route 1: FleetX tab grant (checked locally from the access snapshot)
+        try:
+            granted = allowed_tabs_for(email) or []
+        except Exception:
+            granted = []
+        by_tab_grant = ("SMS Command" in granted) or ("Messaging" in granted)
+
+        def worker():
+            store = A.load_store()
+            def finish():
+                if not store:
+                    return
+                by_list = A.user_exists(store, email)
+                if not (by_tab_grant or by_list):
+                    return                    # not authorised -> normal login
+                self._sms_store = store
+                self._sms_authed = True
+                # admin only via the SMS list flag or a global admin email
+                self._sms_is_admin = (A.user_is_admin(store, email)
+                                      or A.normalize_email(email) in
+                                      {e.lower() for e in ADMIN_EMAILS})
+                self._sms_user = A.normalize_email(email)
+                self._sms_enter()
+                self._sms_ensure_token()
+            self.after(0, finish)
+        _t.Thread(target=worker, daemon=True).start()
 
     def _sms_do_login(self):
         email = self._sms_email.get().strip()
@@ -68,6 +118,10 @@ class SmsAuthMixin:
                 self._sms_authed = True
                 self._sms_is_admin = is_admin
                 self._sms_user = A.normalize_email(email)
+                if self._sms_remember.get():
+                    save_sms_login(self._sms_user, pw)
+                else:
+                    clear_sms_login()
                 self._sms_pass.set("")
                 self._sms_enter()
                 self._sms_ensure_token()   # prompt once if no local token yet
@@ -213,7 +267,11 @@ class SmsAuthMixin:
         ttk.Entry(form, textvariable=self._sms_new_email, width=30).grid(row=0, column=1, pady=3)
         ttk.Label(form, text="Password:").grid(row=1, column=0, sticky="e", pady=3)
         self._sms_new_pw = tk.StringVar()
-        ttk.Entry(form, textvariable=self._sms_new_pw, width=30).grid(row=1, column=1, pady=3)
+        pwrow = ttk.Frame(form); pwrow.grid(row=1, column=1, pady=3, sticky="w")
+        ttk.Entry(pwrow, textvariable=self._sms_new_pw, width=22).pack(side="left")
+        ttk.Button(pwrow, text="Generate",
+                   command=lambda: self._sms_new_pw.set(A.generate_password())
+                   ).pack(side="left", padx=4)
         self._sms_new_admin = tk.BooleanVar(value=False)
         ttk.Checkbutton(form, text="Admin", variable=self._sms_new_admin).grid(
             row=2, column=1, sticky="w")
@@ -238,15 +296,18 @@ class SmsAuthMixin:
         users = (self._sms_store or {}).get("users", {})
         for email, rec in sorted(users.items()):
             tag = "  (admin)" if rec.get("admin") else ""
+            if A.is_legacy_hash(rec.get("pw")):
+                tag += "  [old hash — reset advised]"
             self._sms_user_list.insert("end", email + tag)
 
     def _sms_admin_selected_email(self):
         sel = self._sms_user_list.curselection()
         if not sel:
             return None
-        return self._sms_user_list.get(sel[0]).split("  (admin)")[0].strip()
+        raw = self._sms_user_list.get(sel[0])
+        return raw.split("  (admin)")[0].split("  [old hash")[0].strip()
 
-    def _sms_admin_push(self, new_store, ok_msg):
+    def _sms_admin_push(self, new_store, ok_msg, on_success=None):
         tok = self._sms_gh.get().strip() or load_gh_token()
         if not tok:
             self._sms_admin_status.config(
@@ -259,10 +320,36 @@ class SmsAuthMixin:
                     self._sms_store = new_store
                     self._sms_admin_status.config(text=ok_msg, foreground="green")
                     self._sms_admin_refresh()
+                    if on_success:
+                        on_success()
                 else:
                     self._sms_admin_status.config(text=msg, foreground="red")
             self.after(0, finish)
         threading.Thread(target=worker, daemon=True).start()
+
+    def _sms_show_credentials_once(self, email, password):
+        """Display the new credentials ONCE so the admin can pass them on.
+        Passwords are hashed on save and cannot be shown again afterwards."""
+        dlg = tk.Toplevel(self)
+        dlg.title("New credentials")
+        dlg.transient(self); dlg.grab_set(); dlg.resizable(False, False)
+        frm = ttk.Frame(dlg, padding=14); frm.pack(fill="both", expand=True)
+        ttk.Label(frm, text="Share these with the user now —",
+                  font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        ttk.Label(frm, text="the password is hashed and cannot be shown again.",
+                  foreground="gray").pack(anchor="w", pady=(0, 8))
+        text = f"Email:    {email}\nPassword: {password}"
+        box = tk.Text(frm, height=2, width=42, relief="solid", borderwidth=1)
+        box.insert("1.0", text); box.config(state="disabled")
+        box.pack(pady=4)
+
+        def copy():
+            self.clipboard_clear(); self.clipboard_append(text)
+            copied.config(text="Copied to clipboard.")
+        row = ttk.Frame(frm); row.pack(pady=(6, 0))
+        ttk.Button(row, text="Copy", command=copy).pack(side="left", padx=4)
+        ttk.Button(row, text="Done", command=dlg.destroy).pack(side="left", padx=4)
+        copied = ttk.Label(frm, text="", foreground="green"); copied.pack()
 
     def _sms_admin_save_user(self):
         email = self._sms_new_email.get().strip()
@@ -272,8 +359,11 @@ class SmsAuthMixin:
             return
         new = A.apply_user_change(self._sms_store, "set", email, password=pw,
                                   admin=self._sms_new_admin.get())
+        shown_email, shown_pw = A.normalize_email(email), pw
         self._sms_new_email.set(""); self._sms_new_pw.set(""); self._sms_new_admin.set(False)
-        self._sms_admin_push(new, f"Saved {A.normalize_email(email)}.")
+        self._sms_admin_push(new, f"Saved {shown_email}.",
+                             on_success=lambda: self._sms_show_credentials_once(
+                                 shown_email, shown_pw))
 
     def _sms_admin_reset(self):
         email = self._sms_admin_selected_email()
@@ -287,7 +377,8 @@ class SmsAuthMixin:
             return
         new = A.apply_user_change(self._sms_store, "set", email, password=pw)
         self._sms_new_pw.set("")
-        self._sms_admin_push(new, f"Password reset for {email}.")
+        self._sms_admin_push(new, f"Password reset for {email}.",
+                             on_success=lambda: self._sms_show_credentials_once(email, pw))
 
     def _sms_admin_delete(self):
         email = self._sms_admin_selected_email()

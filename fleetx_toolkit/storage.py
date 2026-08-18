@@ -165,3 +165,51 @@ def save_sms_token(token):
         return True
     except Exception:
         return False
+
+
+# ── SMS/Messaging login memory (v3.11) ──
+SMS_LOGIN_SERVICE = "FleetX-Toolkit-SMSLogin"
+
+
+def save_sms_login(email, password=None):
+    """Remember the SMS/Messaging login for pre-fill next launch. Email goes in
+    settings; the password (if the user opts in) goes to Credential Manager."""
+    try:
+        s = load_settings()
+        s["sms_login_email"] = str(email or "")
+        save_settings(s)
+    except Exception:
+        pass
+    if password is not None and keyring is not None:
+        try:
+            keyring.set_password(SMS_LOGIN_SERVICE, str(email or ""), password)
+            return True
+        except Exception:
+            return False
+    return True
+
+
+def load_sms_login():
+    """(email, password) remembered for pre-fill; password may be ''."""
+    email = ""
+    try:
+        email = str(load_settings().get("sms_login_email", "") or "")
+    except Exception:
+        pass
+    pw = ""
+    if email and keyring is not None:
+        try:
+            pw = keyring.get_password(SMS_LOGIN_SERVICE, email) or ""
+        except Exception:
+            pw = ""
+    return email, pw
+
+
+def clear_sms_login():
+    try:
+        email = str(load_settings().get("sms_login_email", "") or "")
+        s = load_settings(); s.pop("sms_login_email", None); save_settings(s)
+        if email and keyring is not None:
+            keyring.delete_password(SMS_LOGIN_SERVICE, email)
+    except Exception:
+        pass

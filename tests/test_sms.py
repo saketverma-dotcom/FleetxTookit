@@ -347,3 +347,105 @@ class TestSmsAuth:
         assert A.check_login(s, "u@fleetx.io", "p")[1] is False
         s = A.apply_user_change(s, "set", "u@fleetx.io", admin=True)
         assert A.check_login(s, "u@fleetx.io", "p")[1] is True   # pw preserved, admin flipped
+
+
+class TestPBKDF2AndAutoAuth:
+    def test_new_password_uses_pbkdf2(self):
+        from fleetx_toolkit import sms_auth as A
+        s = A.apply_user_change({"salt": "x", "users": {}}, "set",
+                                "u@fleetx.io", password="Secret123")
+        rec = s["users"]["u@fleetx.io"]["pw"]
+        assert isinstance(rec, dict) and rec["algo"] == "pbkdf2"
+        assert rec["rounds"] == A.PBKDF2_ROUNDS
+        assert A.check_login(s, "u@fleetx.io", "Secret123")[0]
+        assert not A.check_login(s, "u@fleetx.io", "wrong")[0]
+
+    def test_per_user_salts_differ(self):
+        from fleetx_toolkit import sms_auth as A
+        s = A.apply_user_change({"salt": "x", "users": {}}, "set", "a@f.io", password="same")
+        s = A.apply_user_change(s, "set", "b@f.io", password="same")
+        assert s["users"]["a@f.io"]["pw"]["salt"] != s["users"]["b@f.io"]["pw"]["salt"]
+        assert s["users"]["a@f.io"]["pw"]["hash"] != s["users"]["b@f.io"]["pw"]["hash"]
+
+    def test_legacy_sha256_still_verifies(self):
+        from fleetx_toolkit import sms_auth as A
+        salt = "c17730ef321706cc"
+        legacy = {"salt": salt, "users": {
+            "old@fleetx.io": {"pw": A.hash_password("pw123", salt), "admin": True}}}
+        ok, adm, _ = A.check_login(legacy, "old@fleetx.io", "pw123")
+        assert ok and adm
+        assert not A.check_login(legacy, "old@fleetx.io", "nope")[0]
+
+    def test_reset_upgrades_legacy_to_pbkdf2(self):
+        from fleetx_toolkit import sms_auth as A
+        salt = "s"
+        legacy = {"salt": salt, "users": {
+            "old@f.io": {"pw": A.hash_password("old", salt), "admin": False}}}
+        assert A.is_legacy_hash(legacy["users"]["old@f.io"]["pw"])
+        up = A.apply_user_change(legacy, "set", "old@f.io", password="newpw")
+        assert not A.is_legacy_hash(up["users"]["old@f.io"]["pw"])
+        assert A.check_login(up, "old@f.io", "newpw")[0]
+
+    def test_generate_password(self):
+        from fleetx_toolkit import sms_auth as A
+        p = A.generate_password()
+        assert len(p) == 12
+        assert not (set("0O1lI") & set(p))       # no ambiguous chars
+        assert A.generate_password() != A.generate_password()
+
+    def test_user_exists_gates_auto_auth(self):
+        from fleetx_toolkit import sms_auth as A
+        s = A.apply_user_change({"salt": "x", "users": {}}, "set",
+                                "vinay@fleetx.io", password="p", admin=False)
+        assert A.user_exists(s, "VINAY@Fleetx.IO")        # case-insensitive
+        assert not A.user_exists(s, "komal@fleetx.io")    # not on list -> no auto-auth
+        assert not A.user_exists({}, "anyone@fleetx.io")
+
+    def test_user_is_admin(self):
+        from fleetx_toolkit import sms_auth as A
+        s = A.apply_user_change({"salt": "x", "users": {}}, "set",
+                                "boss@fleetx.io", password="p", admin=True)
+        s = A.apply_user_change(s, "set", "reg@fleetx.io", password="p", admin=False)
+        assert A.user_is_admin(s, "boss@fleetx.io")
+        assert not A.user_is_admin(s, "reg@fleetx.io")
+
+
+class TestAutoAuthRouting:
+    """v3.11.1: SMS access via FleetX tab grant OR SMS user list; admin only
+    from the SMS list / ADMIN_EMAILS."""
+
+    def _store(self):
+        from fleetx_toolkit import sms_auth as A
+        return A.apply_user_change({"salt": "s", "users": {}}, "set",
+                                   "saket.verma@fleetx.io", password="p", admin=True)
+
+    @staticmethod
+    def _auto(granted, in_list):
+        by_tab = ("SMS Command" in granted) or ("Messaging" in granted)
+        return by_tab or in_list
+
+    def test_tab_grant_alone_grants_access(self):
+        from fleetx_toolkit import sms_auth as A
+        s = self._store()
+        assert not A.user_exists(s, "vinay@fleetx.io")
+        assert self._auto(["Messaging"], A.user_exists(s, "vinay@fleetx.io"))
+
+    def test_sms_list_alone_grants_access(self):
+        from fleetx_toolkit import sms_auth as A
+        s = self._store()
+        assert self._auto([], A.user_exists(s, "saket.verma@fleetx.io"))
+
+    def test_neither_denies_access(self):
+        from fleetx_toolkit import sms_auth as A
+        s = self._store()
+        assert not self._auto(["Tickets"], A.user_exists(s, "komal@fleetx.io"))
+
+    def test_tab_grant_does_not_confer_sms_admin(self):
+        from fleetx_toolkit import sms_auth as A
+        s = self._store()
+        # granted the tab, but not in the SMS list -> not an SMS admin
+        assert not A.user_is_admin(s, "vinay@fleetx.io")
+
+    def test_sms_list_admin_flag_confers_admin(self):
+        from fleetx_toolkit import sms_auth as A
+        assert A.user_is_admin(self._store(), "saket.verma@fleetx.io")

@@ -21,9 +21,15 @@ by an admin and kept in Credential Manager.
 """
 import hashlib
 import json
+import secrets
 
 import requests
 from .http import session
+
+# PBKDF2 parameters (v3.11). Slow-by-design hashing makes a stolen hash far
+# harder to brute-force than plain SHA-256.
+PBKDF2_ROUNDS = 200_000
+PBKDF2_ALGO   = "sha256"
 
 # Dedicated user/token Gist for the SMS+Messaging feature (public, obscure URL).
 # Raw URL is read with no credential; the API URL is used for admin writes.
@@ -36,12 +42,42 @@ SMS_GIST_API      = f"https://api.github.com/gists/{SMS_GIST_ID}"
 # ─────────────── pure helpers (no network) ───────────────
 
 def hash_password(password, salt):
-    """Salted SHA-256 of a password. Deterministic; used for both set + check."""
+    """LEGACY salted SHA-256 (pre-3.11). Kept only so existing users can still
+    log in; new/reset passwords use PBKDF2 via make_password()."""
     return hashlib.sha256((str(salt) + str(password)).encode("utf-8")).hexdigest()
 
 
-def verify_password(password, salt, stored_hash):
-    return hash_password(password, salt) == str(stored_hash)
+def make_password(password):
+    """Create a PBKDF2 record for a new/reset password, with its own random
+    per-user salt. Returns a dict stored under the user's "pw" field."""
+    salt = secrets.token_hex(16)
+    dk = hashlib.pbkdf2_hmac(PBKDF2_ALGO, str(password).encode("utf-8"),
+                             salt.encode("utf-8"), PBKDF2_ROUNDS)
+    return {"algo": "pbkdf2", "salt": salt, "rounds": PBKDF2_ROUNDS,
+            "hash": dk.hex()}
+
+
+def verify_password(password, salt, stored):
+    """Verify against either format:
+      • dict  -> PBKDF2 record written by make_password() (per-user salt)
+      • str   -> legacy SHA-256 hash using the store-wide `salt`
+    Constant-time comparison in both cases."""
+    if isinstance(stored, dict) and stored.get("algo") == "pbkdf2":
+        try:
+            dk = hashlib.pbkdf2_hmac(
+                stored.get("algo_hash", PBKDF2_ALGO),
+                str(password).encode("utf-8"),
+                str(stored["salt"]).encode("utf-8"),
+                int(stored.get("rounds", PBKDF2_ROUNDS)))
+        except Exception:
+            return False
+        return secrets.compare_digest(dk.hex(), str(stored.get("hash", "")))
+    return secrets.compare_digest(hash_password(password, salt), str(stored))
+
+
+def is_legacy_hash(stored):
+    """True if this user still has an old SHA-256 password (should be reset)."""
+    return not (isinstance(stored, dict) and stored.get("algo") == "pbkdf2")
 
 
 def normalize_email(email):
@@ -63,19 +99,40 @@ def check_login(store, email, password):
     return False, False, "Incorrect password."
 
 
+def generate_password(length=12):
+    """Strong, readable random password for the admin to hand out.
+    Avoids ambiguous characters (0/O, 1/l/I)."""
+    alphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789"
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+def user_exists(store, email):
+    """True if this email is in the SMS user list. Used for auto-authenticating
+    someone who already proved their identity via the FleetX login — access is
+    still limited to the admin-managed list."""
+    if not isinstance(store, dict):
+        return False
+    return normalize_email(email) in (store.get("users") or {})
+
+
+def user_is_admin(store, email):
+    rec = (store.get("users") or {}).get(normalize_email(email)) if isinstance(store, dict) else None
+    return bool(rec and rec.get("admin"))
+
+
 def apply_user_change(store, action, email, password=None, admin=None):
     """Return a NEW store dict with a user added/updated/removed. Pure — the
-    caller pushes the result to the Gist. `store` is the current loaded dict."""
+    caller pushes the result to the Gist. New passwords use PBKDF2."""
     store = json.loads(json.dumps(store or {}))       # deep copy
     store.setdefault("users", {})
-    salt = store.setdefault("salt", "")
+    store.setdefault("salt", "")
     email = normalize_email(email)
     if action == "delete":
         store["users"].pop(email, None)
         return store
     rec = store["users"].get(email, {"pw": "", "admin": False})
     if password:
-        rec["pw"] = hash_password(password, salt)
+        rec["pw"] = make_password(password)           # PBKDF2 + per-user salt
     if admin is not None:
         rec["admin"] = bool(admin)
     store["users"][email] = rec

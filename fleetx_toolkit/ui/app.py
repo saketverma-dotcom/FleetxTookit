@@ -133,6 +133,13 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         self.login_status = ttk.Label(self.login_frame, text="", foreground="red")
         self.login_status.grid(row=10, column=0, columnspan=2, pady=6)
 
+        # Always offer a way back — nobody should get stranded on a login they
+        # have no credentials for.
+        ttk.Separator(self.login_frame, orient="horizontal").grid(
+            row=11, column=0, columnspan=2, sticky="ew", pady=(12, 8))
+        ttk.Button(self.login_frame, text="← SMS / Messaging",
+                   command=self._build_sms_front).grid(row=12, column=0, columnspan=2)
+
         if saved_email and saved_pass:
             self.after(400, self.do_login)
     def do_login(self):
@@ -439,6 +446,9 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         page = ttk.Frame(self.nb)
         self.nb.add(page, text="SMS / Messaging")
         self._build_sms_gate(page)
+        # If they're already FleetX-authenticated and on the SMS user list,
+        # sign them in automatically (no second password).
+        self._sms_try_auto_auth()
 
     def _sms_build_feature_tabs(self, inner_nb):
         """Build the SMS Command + Messaging tabs into the inner notebook.
@@ -500,7 +510,12 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
                 self._ui_error("Update", err)
                 return
             self.log("  ✓ Verified. Restarting...", "info")
-            self.after(500, lambda: apply_update_and_restart(new_path))
+            def _swap():
+                res = apply_update_and_restart(new_path)
+                # Only returns when the swap was refused (file missing/quarantined)
+                if isinstance(res, tuple) and not res[0]:
+                    messagebox.showerror("Update", res[1])
+            self.after(500, _swap)
         threading.Thread(target=worker, daemon=True).start()
     def _logout(self):
         if load_credentials()[0]:
