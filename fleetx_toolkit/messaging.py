@@ -259,3 +259,25 @@ def next_poll_interval(idle_cycles):
     if idle_cycles < 15:
         return IDLE_STEPS[1]
     return IDLE_STEPS[2]
+
+
+# ─────────────── human-readable network errors ───────────────
+
+def friendly_error(exc):
+    """Turn a requests/urllib exception into something a fleet ops user can act
+    on. Raw text like "HTTPSConnectionPool(host='semysms.net', port=443): Read
+    timed out" tells them nothing useful."""
+    name = type(exc).__name__
+    text = str(exc).lower()
+    if "read timed out" in text or "readtimeout" in name.lower():
+        return "SemySMS is slow to respond — still retrying"
+    if "timed out" in text or "timeout" in name.lower():
+        return "SemySMS timed out — still retrying"
+    if ("nameresolution" in text or "getaddrinfo" in text
+            or "temporary failure in name resolution" in text):
+        return "No internet connection — still retrying"
+    if "connection" in text or "connect" in name.lower():
+        return "Can't reach SemySMS — check your connection"
+    if "json" in text or "expecting value" in text:
+        return "SemySMS returned an unexpected response — still retrying"
+    return "SemySMS error — still retrying"

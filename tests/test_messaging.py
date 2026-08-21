@@ -216,3 +216,40 @@ class TestPollBackoff:
 
     def test_capped(self):
         assert M.next_poll_interval(1000) == M.POLL_MAX == 30
+
+
+class TestFriendlyErrors:
+    """Poll failures must be readable and non-alarming — the raw
+    HTTPSConnectionPool traceback text meant nothing to users."""
+
+    def test_read_timeout(self):
+        import requests
+        msg = M.friendly_error(requests.exceptions.ReadTimeout(
+            "HTTPSConnectionPool(host='semysms.net', port=443): Read timed out. (read timeout=20)"))
+        assert "slow to respond" in msg
+        assert "HTTPSConnectionPool" not in msg     # no raw internals
+
+    def test_no_internet(self):
+        assert "No internet" in M.friendly_error(
+            Exception("Temporary failure in name resolution"))
+
+    def test_connection_error(self):
+        import requests
+        assert "Can't reach" in M.friendly_error(
+            requests.exceptions.ConnectionError("Connection refused"))
+
+    def test_bad_json(self):
+        assert "unexpected response" in M.friendly_error(
+            ValueError("Expecting value: line 1 column 1 (char 0)"))
+
+    def test_unknown_falls_back(self):
+        assert "still retrying" in M.friendly_error(Exception("weird"))
+
+    def test_all_messages_reassure_retry(self):
+        import requests
+        for e in (requests.exceptions.ReadTimeout("Read timed out"),
+                  requests.exceptions.ConnectionError("refused"),
+                  ValueError("Expecting value"),
+                  Exception("other")):
+            m = M.friendly_error(e)
+            assert "retrying" in m or "check your connection" in m

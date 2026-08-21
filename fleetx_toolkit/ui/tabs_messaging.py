@@ -116,17 +116,13 @@ class MessagingTabMixin:
                                        padx=12, pady=10)
         self.msg_thread_lbl.pack(fill="x")
         tk.Frame(right, bg=self.C_DIVIDER, height=1).pack(fill="x")
-        self.msg_thread_box = tk.Text(right, state="disabled", wrap="word",
-                                      bg=self.C_BG, fg=self.C_TEXT, relief="flat",
-                                      padx=12, pady=8, font=("Segoe UI", 10))
-        self.msg_thread_box.pack(fill="both", expand=True)
-        self.msg_thread_box.tag_config("in", foreground="#00695c", spacing3=6)
-        self.msg_thread_box.tag_config("out", foreground="#1565c0",
-                                       justify="right", spacing3=6)
-        self.msg_thread_box.tag_config("meta", foreground=self.C_MUTED,
-                                       font=("Segoe UI", 8))
 
-        rr = tk.Frame(right, bg=self.C_BG); rr.pack(fill="x", pady=6, padx=8)
+        # DPI FIX: the reply row is packed to the bottom FIRST so Tk reserves
+        # its height. Previously the message area (expand=True) was packed
+        # first and swallowed everything, pushing the reply box off-screen at
+        # Windows display scaling of 125%/150%.
+        rr = tk.Frame(right, bg=self.C_BG)
+        rr.pack(side="bottom", fill="x", pady=6, padx=8)
         self.msg_reply = tk.StringVar()
         e = tk.Entry(rr, textvariable=self.msg_reply, relief="flat", bg="#f1f1f1")
         e.pack(side="left", fill="x", expand=True, ipady=6, padx=(0, 6))
@@ -134,6 +130,18 @@ class MessagingTabMixin:
         tk.Button(rr, text="Send", relief="flat", bg=self.C_UNREAD, fg="white",
                   bd=0, padx=16, pady=4, cursor="hand2",
                   command=self._msg_send_reply).pack(side="left")
+
+        # message area fills whatever height is left above the reply row
+        self.msg_thread_box = tk.Text(right, state="disabled", wrap="word",
+                                      bg=self.C_BG, fg=self.C_TEXT, relief="flat",
+                                      padx=12, pady=8, font=("Segoe UI", 10),
+                                      height=6)
+        self.msg_thread_box.pack(fill="both", expand=True)
+        self.msg_thread_box.tag_config("in", foreground="#00695c", spacing3=6)
+        self.msg_thread_box.tag_config("out", foreground="#1565c0",
+                                       justify="right", spacing3=6)
+        self.msg_thread_box.tag_config("meta", foreground=self.C_MUTED,
+                                       font=("Segoe UI", 8))
 
     def _msg_apply_filter(self):
         self._msg_mark_activity()
@@ -224,6 +232,7 @@ class MessagingTabMixin:
                 return
         self._msg_polling = True
         self._msg_idle_cycles = 0
+        self._msg_fail_streak = 0
         self.msg_toggle_btn.config(text="⏸ Stop")
         self.msg_status.config(text=f"Watching {self.msg_sim.get()}…", fg="green")
         self._msg_mark_activity()
@@ -263,12 +272,18 @@ class MessagingTabMixin:
             device = self._msg_device_id
             url, params = M.build_inbox_request(token, device, since_id=self._msg_last_id)
             try:
-                r = session.get(url, params=params, timeout=20)
+                r = session.get(url, params=params, timeout=30)
                 msgs = M.parse_inbox(r.json())
+                # recovered — clear any previous warning
+                self._msg_fail_streak = 0
+                self.after(0, self._msg_clear_error)
             except Exception as e:
-                self.after(0, lambda e=e: self.msg_status.config(
-                    text=f"Poll error: {e}", fg="red"))
                 msgs = []
+                self._msg_fail_streak = getattr(self, "_msg_fail_streak", 0) + 1
+                # A single slow response is normal; only warn if it persists.
+                if self._msg_fail_streak >= 2:
+                    self.after(0, lambda e=e, n=self._msg_fail_streak:
+                               self._msg_show_error(e, n))
             # ignore results if the user switched SIM mid-request
             fresh_count = 0
             if device == self._msg_device_id and msgs:
@@ -282,7 +297,7 @@ class MessagingTabMixin:
                 ids = list(self._msg_pending_status.keys())
                 ourl, oparams = M.build_outbox_request(token, device, ids)
                 try:
-                    ro = session.get(ourl, params=oparams, timeout=20)
+                    ro = session.get(ourl, params=oparams, timeout=30)
                     statuses = M.parse_outbox_status(ro.json())
                 except Exception:
                     statuses = {}
@@ -300,6 +315,19 @@ class MessagingTabMixin:
                 if not self._msg_polling:
                     break
                 threading.Event().wait(0.5)
+
+    def _msg_show_error(self, exc, streak):
+        """Amber warning with a plain-language cause; polling keeps running."""
+        msg = M.friendly_error(exc)
+        if streak >= 5:
+            msg += f" ({streak} failed attempts)"
+        self.msg_status.config(text=msg, fg="#e65100")
+
+    def _msg_clear_error(self):
+        """Back to normal once a poll succeeds — the old code left a red error
+        on screen forever, so users couldn't tell it had recovered."""
+        if self._msg_polling:
+            self.msg_status.config(text=f"Watching {self.msg_sim.get()}…", fg="green")
 
     def _msg_ingest(self, fresh):
         M.add_messages(self._msg_threads, fresh, "in")

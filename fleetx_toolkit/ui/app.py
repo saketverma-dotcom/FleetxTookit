@@ -43,13 +43,31 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
 
     def __init__(self):
         super().__init__()
+        self._enable_dpi_awareness()
         self.title("FleetX SMS / Messaging")
         self.geometry("1000x740")
+        self.minsize(820, 560)          # below this the layout can't stay usable
         self.token = None
         self.stop_flag = False
         self.is_admin_user = False
         self.commands = load_commands()
         self._build_sms_front()
+
+    @staticmethod
+    def _enable_dpi_awareness():
+        """On Windows, tell the OS we handle scaling ourselves so the UI is
+        rendered crisply at 125%/150% display scaling instead of being
+        bitmap-stretched (which blurs text and overflows layouts)."""
+        if sys.platform != "win32":
+            return
+        try:
+            import ctypes
+            try:
+                ctypes.windll.shcore.SetProcessDpiAwareness(1)   # system DPI aware
+            except Exception:
+                ctypes.windll.user32.SetProcessDPIAware()        # older Windows
+        except Exception:
+            pass
 
     def _build_sms_front(self):
         """Default front door: SMS/Messaging login only — NO FleetX token.
