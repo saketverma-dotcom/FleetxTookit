@@ -51,6 +51,7 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         self.stop_flag = False
         self.is_admin_user = False
         self.commands = load_commands()
+        self._init_ui_scale()
         self._build_sms_front()
 
     @staticmethod
@@ -69,17 +70,93 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         except Exception:
             pass
 
+    # ── UI scale: auto DPI factor × user preference ──
+
+    def _init_ui_scale(self):
+        """Because we're DPI-aware, Windows no longer enlarges the app — so at
+        150% scaling everything would render tiny. We detect the real scale
+        factor and apply it ourselves, then multiply by the user's saved
+        preference so they can fine-tune text size."""
+        import tkinter.font as tkfont
+        # remember each named font's design size once
+        self._base_font_sizes = {}
+        for name in ("TkDefaultFont", "TkTextFont", "TkMenuFont",
+                     "TkHeadingFont", "TkFixedFont", "TkTooltipFont",
+                     "TkCaptionFont", "TkSmallCaptionFont", "TkIconFont"):
+            try:
+                f = tkfont.nametofont(name)
+                self._base_font_sizes[name] = abs(int(f.cget("size"))) or 9
+            except Exception:
+                pass
+        try:
+            self._user_scale = float(load_settings().get("ui_scale", 1.0))
+        except Exception:
+            self._user_scale = 1.0
+        self._user_scale = min(1.8, max(0.7, self._user_scale))
+        self._apply_ui_scale(persist=False)
+
+    def _dpi_factor(self):
+        """1.0 at 96dpi, 1.25 at 120dpi, 1.5 at 144dpi (Windows 150%)."""
+        try:
+            return max(1.0, float(self.winfo_fpixels("1i")) / 96.0)
+        except Exception:
+            return 1.0
+
+    def _apply_ui_scale(self, persist=True):
+        import tkinter.font as tkfont
+        factor = self._dpi_factor() * self._user_scale
+        try:
+            self.tk.call("tk", "scaling", factor * 1.333)
+        except Exception:
+            pass
+        for name, base in self._base_font_sizes.items():
+            try:
+                tkfont.nametofont(name).configure(
+                    size=max(7, int(round(base * factor))))
+            except Exception:
+                pass
+        if persist:
+            try:
+                s = load_settings()
+                s["ui_scale"] = round(self._user_scale, 2)
+                save_settings(s)
+            except Exception:
+                pass
+        lbl = getattr(self, "_scale_lbl", None)
+        if lbl is not None:
+            try:
+                lbl.config(text=f"{int(self._user_scale * 100)}%")
+            except Exception:
+                pass
+
+    def _scale_step(self, delta):
+        self._user_scale = min(1.8, max(0.7, round(self._user_scale + delta, 2)))
+        self._apply_ui_scale()
+
+    def _add_scale_controls(self, parent):
+        """A− / A+ text-size controls, shown on both post-login headers."""
+        sf = ttk.Frame(parent)
+        sf.pack(side="right", padx=8)
+        ttk.Button(sf, text="A−", width=3,
+                   command=lambda: self._scale_step(-0.1)).pack(side="left")
+        self._scale_lbl = ttk.Label(sf, width=5, anchor="center",
+                                    text=f"{int(self._user_scale * 100)}%")
+        self._scale_lbl.pack(side="left")
+        ttk.Button(sf, text="A+", width=3,
+                   command=lambda: self._scale_step(0.1)).pack(side="left")
+        return sf
+
     def _build_sms_front(self):
         """Default front door: SMS/Messaging login only — NO FleetX token.
         A small link switches to FleetX Tools for those who need the platform."""
         for w in self.winfo_children():
             w.destroy()
-        # top bar: version + Update button (available to SMS-only users too)
+        # top bar: version only. The Update button appears AFTER login
+        # (on the signed-in bar, or the FleetX header).
         topbar = ttk.Frame(self, padding=(10, 6))
         topbar.pack(fill="x")
         ttk.Label(topbar, text=f"FleetX SMS / Messaging   |   v{APP_VERSION}",
                   foreground="gray").pack(side="left")
-        self._add_update_button(topbar)
 
         self._sms_front = ttk.Frame(self, padding=30)
         self._sms_front.pack(fill="both", expand=True)
@@ -92,7 +169,46 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
 
     def _add_update_button(self, parent):
         """Show the ⬆ Update button if a newer version is published. Used by
-        both the FleetX header and the standalone SMS front door."""
+        both the FleetX header and the standalone SMS front door.
+
+        NOTE: the version metadata lives in the access Gist and is only cached
+        by load_access(), which previously ran on the FleetX login path only —
+        so SMS-only users never had the data and never saw the button. We now
+        fetch it here (off-thread) when it's missing.
+        """
+        from ..access_control import get_remote_meta
+        if not get_remote_meta():
+            # No metadata yet (standalone SMS user). Fetch it, then add the
+            # button. This is scheduled via after() so it starts only once the
+            # Tk mainloop is running — calling after() from a worker before the
+            # loop exists raises "main thread is not in main loop" and the
+            # button would silently never appear.
+            def start_fetch():
+                def worker():
+                    try:
+                        snap = load_access()
+                        access_control.set_snapshot(snap)
+                        upd = check_update()
+                    except Exception:
+                        return
+                    if not upd:
+                        return
+
+                    def finish():
+                        try:
+                            if parent.winfo_exists():
+                                ttk.Button(parent, text=f"⬆ Update to v{upd[0]}",
+                                           command=lambda u=upd: self._do_self_update(*u)
+                                           ).pack(side="left", padx=10)
+                        except Exception:
+                            pass
+                    try:
+                        self.after(0, finish)
+                    except RuntimeError:
+                        pass       # window closing
+                threading.Thread(target=worker, daemon=True).start()
+            self.after(150, start_fetch)
+            return None
         try:
             upd = check_update()
         except Exception:
@@ -375,6 +491,7 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
                   foreground="green").pack(side="left")
         self._add_update_button(top)
         ttk.Button(top, text="Logout", command=self._logout).pack(side="right")
+        self._add_scale_controls(top)
 
         # Runtime settings (persisted)
         s = load_settings()

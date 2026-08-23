@@ -172,6 +172,7 @@ class SmsAuthMixin:
                             + ("  (admin)" if self._sms_is_admin else ""),
                   foreground="green").pack(side="left")
         ttk.Button(bar, text="Sign out", command=self._sms_signout).pack(side="right")
+        self._add_scale_controls(bar)
         self._add_update_button(bar)
 
 
