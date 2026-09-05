@@ -249,16 +249,12 @@ IDLE_STEPS     = (7, 15, 30)   # ladder as idle cycles accumulate
 
 
 def next_poll_interval(idle_cycles):
-    """Seconds to wait before the next poll, given how many consecutive polls
-    returned nothing new. Keeps 7s while active, stretches to 30s when quiet —
-    cutting API load a lot without hurting responsiveness in a live chat."""
-    if idle_cycles <= 0:
-        return IDLE_STEPS[0]
-    if idle_cycles < 5:
-        return IDLE_STEPS[0]
-    if idle_cycles < 15:
-        return IDLE_STEPS[1]
-    return IDLE_STEPS[2]
+    """Always poll at the base interval (v3.12).
+
+    v3.10 stretched this to 15s/30s when idle to cut API load, but that made
+    new messages take up to 30s to appear — users reported Messaging feeling
+    slow. Responsiveness wins: we always poll every POLL_BASE seconds."""
+    return POLL_BASE
 
 
 # ─────────────── human-readable network errors ───────────────
@@ -281,3 +277,33 @@ def friendly_error(exc):
     if "json" in text or "expecting value" in text:
         return "SemySMS returned an unexpected response — still retrying"
     return "SemySMS error — still retrying"
+
+
+# ─────────────── multi-recipient compose (v3.12) ───────────────
+
+MAX_RECIPIENTS = 5
+
+
+def parse_recipients(raw, normalizer=None, limit=MAX_RECIPIENTS):
+    """Split a comma-separated recipient string for the New-message box.
+
+    Returns (numbers, error). Numbers are de-duplicated, order preserved.
+    `normalizer` is the app's number-normalising function (injected so this
+    stays testable). Enforces the max-recipient cap.
+    """
+    raw = (raw or "").replace(";", ",")
+    parts = [p.strip() for p in raw.split(",")]
+    parts = [p for p in parts if p]
+    if not parts:
+        return [], "Enter at least one number."
+    out, seen = [], set()
+    for p in parts:
+        num = normalizer(p, "") if normalizer else p
+        if not num:
+            return [], f"'{p}' is not a valid number."
+        if num not in seen:
+            seen.add(num)
+            out.append(num)
+    if len(out) > limit:
+        return [], f"Too many recipients ({len(out)}). Maximum is {limit}."
+    return out, ""

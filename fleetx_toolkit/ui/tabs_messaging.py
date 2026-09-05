@@ -162,12 +162,28 @@ class MessagingTabMixin:
 
         ttk.Label(frm, text=f"Send from: {self.msg_sim.get()}",
                   font=("Segoe UI", 9, "bold")).grid(row=0, column=0, columnspan=2, sticky="w")
-        ttk.Label(frm, text="To number:").grid(row=1, column=0, sticky="e", pady=6)
+        ttk.Label(frm, text="To number(s):").grid(row=1, column=0, sticky="e", pady=6)
         num_var = tk.StringVar()
-        num_e = ttk.Entry(frm, textvariable=num_var, width=28)
+        num_e = ttk.Entry(frm, textvariable=num_var, width=34)
         num_e.grid(row=1, column=1, pady=6); num_e.focus_set()
-        ttk.Label(frm, text="(with country code, e.g. +9198…)",
-                  foreground="gray").grid(row=2, column=1, sticky="w")
+        rec_lbl = ttk.Label(frm,
+            text=f"Comma-separated, max {M.MAX_RECIPIENTS} (e.g. +9198…, +9199…)",
+            foreground="gray")
+        rec_lbl.grid(row=2, column=1, sticky="w")
+
+        def upd_recipients(*_):
+            nums, err = M.parse_recipients(num_var.get(), normalize_number)
+            if err and num_var.get().strip():
+                rec_lbl.config(text=err, foreground="#c62828")
+            elif nums:
+                rec_lbl.config(text=f"{len(nums)} recipient"
+                                    + ("" if len(nums) == 1 else "s"),
+                               foreground="green")
+            else:
+                rec_lbl.config(
+                    text=f"Comma-separated, max {M.MAX_RECIPIENTS} (e.g. +9198…, +9199…)",
+                    foreground="gray")
+        num_var.trace_add("write", upd_recipients)
 
         ttk.Label(frm, text="Message:").grid(row=3, column=0, sticky="ne", pady=6)
         msg_txt = tk.Text(frm, height=4, width=32, wrap="word")
@@ -183,23 +199,27 @@ class MessagingTabMixin:
         btns = ttk.Frame(frm); btns.grid(row=5, column=0, columnspan=2, pady=(8, 0))
 
         def do_send():
-            phone = normalize_number(num_var.get(), "")
+            numbers, err = M.parse_recipients(num_var.get(), normalize_number)
             text = msg_txt.get("1.0", "end").strip()
-            if not phone:
-                messagebox.showerror("New message", "Enter a valid number.", parent=dlg); return
+            if err:
+                messagebox.showerror("New message", err, parent=dlg); return
             if not text:
                 messagebox.showerror("New message", "Enter a message.", parent=dlg); return
             if not self._current_sms_token():
                 messagebox.showerror("New message",
                     "No SemySMS token available (not loaded from login).", parent=dlg); return
-            # ensure a thread bucket exists and make it active, then reuse reply path
-            self._msg_threads.setdefault(phone, [])
-            self._msg_active_phone = phone
-            self.msg_reply.set(text)
             dlg.destroy()
+            # Send to each recipient; every number gets its OWN conversation
+            # thread in the Messaging tab (v3.12).
+            for num in numbers:
+                self._msg_threads.setdefault(num, [])
+                self._msg_active_phone = num
+                self.msg_reply.set(text)
+                self._msg_send_reply()
+            # leave the last recipient open, list shows them all
+            self._msg_force_redraw()
             self._msg_refresh_conv_list()
             self._msg_render_thread()
-            self._msg_send_reply()
 
         ttk.Button(btns, text="Send", command=do_send).pack(side="left", padx=4)
         ttk.Button(btns, text="Cancel", command=dlg.destroy).pack(side="left", padx=4)
@@ -364,18 +384,25 @@ class MessagingTabMixin:
         it computes a lightweight signature and skips the redraw when nothing
         relevant changed."""
         phones = M.filter_threads(self._msg_threads, self._msg_query, None)
-        # signature: order + unread + selection + last preview/time per row
-        sig = tuple((p, p in self._msg_unread, p == self._msg_active_phone,
-                     M.last_time(self._msg_threads, p),
-                     M.preview_text(self._msg_threads, p)) for p in phones)
+        sig = self._msg_current_sig(phones)
         if sig == getattr(self, "_msg_last_sig", None):
             return
         self._msg_last_sig = sig
         for w in self.msg_rows.winfo_children():
             w.destroy()
         self._msg_row_index = phones
+        self._msg_row_widgets = {}
         for phone in phones:
             self._msg_draw_row(phone)
+
+    def _msg_current_sig(self, phones=None):
+        """Lightweight fingerprint of what the conversation list should show:
+        order + unread + selection + last preview/time per row."""
+        if phones is None:
+            phones = M.filter_threads(self._msg_threads, self._msg_query, None)
+        return tuple((p, p in self._msg_unread, p == self._msg_active_phone,
+                      M.last_time(self._msg_threads, p),
+                      M.preview_text(self._msg_threads, p)) for p in phones)
         self.msg_canvas.yview_moveto(0.0) if not self._msg_active_phone else None
 
     def _msg_force_redraw(self):
@@ -398,16 +425,25 @@ class MessagingTabMixin:
 
         mid = tk.Frame(row, bg=bg); mid.pack(side="left", fill="x", expand=True, pady=6)
         top = tk.Frame(mid, bg=bg); top.pack(fill="x")
-        dot = "● " if is_unread else ""
-        tk.Label(top, text=dot, bg=bg, fg=self.C_UNREAD,
-                 font=("Segoe UI", 8)).pack(side="left")
-        tk.Label(top, text=phone, bg=bg, fg=self.C_TEXT, anchor="w",
-                 font=("Segoe UI", 10, "bold" if is_unread else "normal")).pack(side="left")
-        tk.Label(top, text=M.last_time(self._msg_threads, phone), bg=bg,
-                 fg=self.C_MUTED, font=("Segoe UI", 8)).pack(side="right", padx=8)
-        tk.Label(mid, text=M.preview_text(self._msg_threads, phone), bg=bg,
-                 fg=self.C_MUTED, anchor="w", font=("Segoe UI", 9),
-                 justify="left").pack(fill="x")
+        dot_lbl = tk.Label(top, text="● " if is_unread else "", bg=bg,
+                           fg=self.C_UNREAD, font=("Segoe UI", 8))
+        dot_lbl.pack(side="left")
+        name_lbl = tk.Label(top, text=phone, bg=bg, fg=self.C_TEXT, anchor="w",
+                            font=("Segoe UI", 10, "bold" if is_unread else "normal"))
+        name_lbl.pack(side="left")
+        time_lbl = tk.Label(top, text=M.last_time(self._msg_threads, phone), bg=bg,
+                            fg=self.C_MUTED, font=("Segoe UI", 8))
+        time_lbl.pack(side="right", padx=8)
+        prev_lbl = tk.Label(mid, text=M.preview_text(self._msg_threads, phone), bg=bg,
+                            fg=self.C_MUTED, anchor="w", font=("Segoe UI", 9),
+                            justify="left")
+        prev_lbl.pack(fill="x")
+        # remember the widgets so selection changes can restyle in place
+        # instead of rebuilding the whole list (v3.12 speed fix)
+        if not hasattr(self, "_msg_row_widgets"):
+            self._msg_row_widgets = {}
+        self._msg_row_widgets[phone] = (
+            row, (av, mid, top, time_lbl, prev_lbl), dot_lbl, name_lbl)
 
         # FIX: bind the click on the row AND every descendant, so clicking any
         # part (number, preview, avatar, blank space) always opens the thread.
@@ -420,16 +456,49 @@ class MessagingTabMixin:
 
     def _msg_open_phone(self, phone):
         self._msg_mark_activity()
-        self._msg_idle_cycles = 0
+        prev = self._msg_active_phone
         self._msg_active_phone = phone
         self._msg_unread.discard(phone)      # opening marks read
         # render the thread immediately (cheap, feels responsive)
         self._msg_render_thread()
-        # FIX: defer the conversation-list rebuild to after this click event
-        # finishes — rebuilding destroys the very row we're handling the click
-        # on, which was causing missed clicks / hangs.
+        # SPEED (v3.12): only restyle the row we left and the row we opened,
+        # instead of destroying and rebuilding every row on each click.
+        if self._msg_restyle_rows(prev, phone):
+            return
+        # fall back to a full rebuild if the rows aren't tracked yet
         self._msg_force_redraw()
         self.after_idle(self._msg_refresh_conv_list)
+
+    def _msg_restyle_rows(self, *phones):
+        """Recolour specific conversation rows in place (selection / unread).
+        Returns False if we can't (row widgets unknown) so the caller can
+        fall back to a full rebuild."""
+        widgets = getattr(self, "_msg_row_widgets", None)
+        if not widgets:
+            return False
+        for ph in phones:
+            if not ph or ph not in widgets:
+                continue
+            row, parts, dot, name = widgets[ph]
+            try:
+                if not row.winfo_exists():
+                    return False
+                bg = self.C_SEL if ph == self._msg_active_phone else self.C_BG
+                row.config(bg=bg)
+                for w in parts:
+                    if w.winfo_exists():
+                        w.config(bg=bg)
+                is_unread = ph in self._msg_unread
+                if dot.winfo_exists():
+                    dot.config(text="● " if is_unread else "", bg=bg)
+                if name.winfo_exists():
+                    name.config(bg=bg, font=("Segoe UI", 10,
+                                             "bold" if is_unread else "normal"))
+            except Exception:
+                return False
+        # keep the signature in sync so the next poll doesn't force a rebuild
+        self._msg_last_sig = self._msg_current_sig()
+        return True
 
     def _msg_render_thread(self):
         self.msg_thread_box.config(state="normal")
@@ -471,7 +540,6 @@ class MessagingTabMixin:
 
     def _msg_send_reply(self):
         self._msg_mark_activity()
-        self._msg_idle_cycles = 0      # expect a reply — poll fast again
         phone = self._msg_active_phone
         if not phone:
             self._ui_error("Messaging", "Open a conversation first.")
@@ -483,10 +551,23 @@ class MessagingTabMixin:
         device = self._msg_device_id
         self.msg_reply.set("")
 
+        # SPEED (v3.12): show the message immediately as Pending instead of
+        # waiting for the network round-trip. A local ref links it to the API
+        # response so we can fill in the real id/status when it arrives.
+        import datetime as _dt
+        now = f"{_dt.datetime.now():%Y-%m-%d %H:%M:%S}"
+        self._msg_local_seq = getattr(self, "_msg_local_seq", 0) + 1
+        local_ref = f"local-{self._msg_local_seq}"
+        M.add_messages(self._msg_threads,
+                       [{"id": 0, "ref": local_ref, "phone": phone, "msg": text,
+                         "date": now, "status": M.SENT_PENDING}], "out")
+        self._msg_render_thread()
+        self._msg_force_redraw()
+        self._msg_refresh_conv_list()
+
         def worker():
             url, data = M.build_reply_request(token, device, phone, text)
-            ok = False
-            sms_id = 0
+            ok, sms_id = False, 0
             try:
                 r = session.post(url, data=data, timeout=30)
                 body = r.json() or {}
@@ -494,18 +575,17 @@ class MessagingTabMixin:
                 sms_id = int(body.get("id") or 0)
             except Exception:
                 ok = False
-            import datetime as _dt
-            now = f"{_dt.datetime.now():%Y-%m-%d %H:%M:%S}"
 
             def finish():
-                entry = {"id": sms_id, "phone": phone, "msg": text,
-                         "date": now, "status": M.SENT_SENT if ok else M.SENT_FAILED}
-                M.add_messages(self._msg_threads, [entry], "out")
-                # track for delivery-status polling if we got a real id
+                # find the optimistic entry and update it in place
+                for msg in self._msg_threads.get(phone, []):
+                    if msg.get("ref") == local_ref:
+                        msg["id"] = sms_id
+                        msg["status"] = M.SENT_SENT if ok else M.SENT_FAILED
+                        break
                 if ok and sms_id:
                     self._msg_pending_status[sms_id] = phone
                 self._msg_render_thread()
-                self._msg_refresh_conv_list()
                 if not ok:
                     self.msg_status.config(text="Reply may have failed (check SemySMS).",
                                            fg="red")

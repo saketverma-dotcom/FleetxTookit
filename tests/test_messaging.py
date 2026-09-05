@@ -204,18 +204,16 @@ class TestUIHelpers:
         assert M.filter_threads(t, "", unread={"+9111"}) == ["+9111"]
 
 
-class TestPollBackoff:
-    def test_active_stays_fast(self):
-        assert M.next_poll_interval(0) == 7
-        assert M.next_poll_interval(4) == 7
+class TestPollInterval:
+    """v3.12: the adaptive idle backoff was removed — new messages were taking
+    up to 30s to appear. Polling is now always at the base interval."""
 
-    def test_steps_up_when_idle(self):
-        assert M.next_poll_interval(5) == 15
-        assert M.next_poll_interval(14) == 15
-        assert M.next_poll_interval(15) == 30
+    def test_always_base_interval(self):
+        for idle in (0, 1, 5, 14, 15, 100, 1000):
+            assert M.next_poll_interval(idle) == M.POLL_BASE
 
-    def test_capped(self):
-        assert M.next_poll_interval(1000) == M.POLL_MAX == 30
+    def test_base_is_seven_seconds(self):
+        assert M.POLL_BASE == 7
 
 
 class TestFriendlyErrors:
@@ -253,3 +251,49 @@ class TestFriendlyErrors:
                   Exception("other")):
             m = M.friendly_error(e)
             assert "retrying" in m or "check your connection" in m
+
+
+class TestMultiRecipient:
+    """v3.12: New-message compose accepts up to 5 comma-separated numbers."""
+
+    @staticmethod
+    def _norm(n, _):
+        n = str(n).strip()
+        return n if (n.lstrip("+").isdigit() and len(n.lstrip("+")) >= 5) else ""
+
+    def test_single(self):
+        nums, err = M.parse_recipients("+919998887776", self._norm)
+        assert not err and nums == ["+919998887776"]
+
+    def test_multiple(self):
+        nums, err = M.parse_recipients("+919998887776, +919111222333", self._norm)
+        assert not err and len(nums) == 2
+
+    def test_exactly_five_ok(self):
+        raw = ", ".join(f"+9199988877{i}0" for i in range(5))
+        nums, err = M.parse_recipients(raw, self._norm)
+        assert not err and len(nums) == 5
+
+    def test_six_rejected(self):
+        raw = ", ".join(f"+9199988877{i}0" for i in range(6))
+        nums, err = M.parse_recipients(raw, self._norm)
+        assert nums == [] and "Maximum is 5" in err
+
+    def test_duplicates_collapsed(self):
+        nums, err = M.parse_recipients("+919998887776, +919998887776", self._norm)
+        assert not err and len(nums) == 1
+
+    def test_empty_rejected(self):
+        nums, err = M.parse_recipients("   ", self._norm)
+        assert nums == [] and "at least one" in err
+
+    def test_invalid_number_rejected(self):
+        nums, err = M.parse_recipients("+919998887776, abc", self._norm)
+        assert nums == [] and "not a valid" in err
+
+    def test_semicolon_tolerated(self):
+        nums, err = M.parse_recipients("+919998887776; +919111222333", self._norm)
+        assert not err and len(nums) == 2
+
+    def test_max_is_five(self):
+        assert M.MAX_RECIPIENTS == 5

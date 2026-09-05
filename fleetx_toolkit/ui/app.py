@@ -669,8 +669,7 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         if threading.current_thread() is not threading.main_thread():
             self.after(0, lambda: self.log(msg, tag))
             return
-        # Standalone SMS/Messaging mode has no Live Log widget — no-op there.
-        box = getattr(self, "log_box", None)
+        box = self._active_log_box()
         if box is None:
             return
         box.config(state="normal")
@@ -679,6 +678,37 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         self._trim_log(box)
         box.see("end")
         box.config(state="disabled")
+
+    def _active_log_box(self):
+        """Which Live Log should receive output right now.
+
+        FIX (v3.12): SMS Command runs go through the shared _loop(), which logs
+        via self.log(). That used to land in the MAIN log — so SMS output was
+        invisible on the SMS tab and appeared under Tickets etc. instead. When
+        the SMS Command tab is the active one, send output to its own log.
+        """
+        sms_box = getattr(self, "_sms_log_box", None)
+        if sms_box is not None:
+            try:
+                nb = getattr(self, "_sms_inner_nb", None)
+                if nb is not None and nb.winfo_exists() \
+                        and nb.tab(nb.select(), "text") == "SMS Command":
+                    # In FleetX mode the SMS area is itself a tab — only claim
+                    # the output when that tab is the one on screen, otherwise
+                    # Tickets/Device Add output would land in the SMS log.
+                    main_nb = getattr(self, "nb", None)
+                    if main_nb is None or main_nb is nb:
+                        return sms_box            # standalone SMS mode
+                    try:
+                        if main_nb.tab(main_nb.select(), "text") == "SMS / Messaging":
+                            return sms_box
+                    except Exception:
+                        return sms_box
+            except Exception:
+                pass
+        box = getattr(self, "log_box", None)
+        # standalone SMS mode has no main log at all
+        return box if box is not None else sms_box
 
     LOG_MAX_LINES = 2000
 
