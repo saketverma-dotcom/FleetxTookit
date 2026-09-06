@@ -23,10 +23,15 @@ def build_devices_request(token):
 
 
 def parse_devices(resp_json):
-    """{device_id(str): {"online": bool, "battery": int|None, "name": str}}.
+    """{device_id(str): {"online": bool, "battery": int|None, "name": str,
+                         "for_sending": bool|None, "last_active": str}}
 
-    SemySMS reports online state differently across accounts/versions, so we
-    accept any of the common flags rather than trusting one field.
+    Field names per the SemySMS docs (api/3/devices.php):
+      • ``bat``          battery charge in percent (may arrive as a string)
+      • ``power``        the service in the phone is on or off  -> online
+      • ``is_work``      "use for sending" (a setting, NOT online state)
+      • ``device_name``  device name
+    Reading ``power`` as the battery was what made every SIM show "1%".
     """
     out = {}
     if not isinstance(resp_json, dict):
@@ -37,25 +42,30 @@ def parse_devices(resp_json):
         did = str(row.get("id", "")).strip()
         if not did:
             continue
-        online = None
-        for key in ("is_online", "online", "is_work", "active"):
-            if key in row:
-                try:
-                    online = int(row.get(key) or 0) == 1
-                except (TypeError, ValueError):
-                    online = bool(row.get(key))
-                break
+
+        def flag(key):
+            if key not in row or row.get(key) in (None, ""):
+                return None
+            try:
+                return int(row.get(key)) == 1
+            except (TypeError, ValueError):
+                return bool(row.get(key))
+
         battery = None
-        for key in ("battery", "power", "bat"):
-            if row.get(key) not in (None, ""):
-                try:
-                    battery = max(0, min(100, int(float(row[key]))))
-                except (TypeError, ValueError):
-                    battery = None
-                break
-        out[did] = {"online": bool(online) if online is not None else None,
-                    "battery": battery,
-                    "name": str(row.get("name", "") or "").strip()}
+        raw_bat = row.get("bat", row.get("battery"))
+        if raw_bat not in (None, ""):
+            try:
+                battery = max(0, min(100, int(float(raw_bat))))
+            except (TypeError, ValueError):
+                battery = None
+
+        out[did] = {
+            "online": flag("power"),
+            "battery": battery,
+            "name": str(row.get("device_name") or row.get("name") or "").strip(),
+            "for_sending": flag("is_work"),
+            "last_active": str(row.get("date_last_active") or ""),
+        }
     return out
 
 
@@ -63,23 +73,32 @@ def format_sim_label(name, status):
     """Dropdown text for one SIM, e.g.
          "Airtel Pulse — online 87%"
          "Voda Restrict 1 — OFFLINE 42%"
+         "Airtel 2 — online 90% (sending off)"
        Unknown status falls back to the bare name so the dropdown is never
        blank while the first fetch is still in flight."""
     if not status:
         return name
     online = status.get("online")
     bat = status.get("battery")
-    if online is None:
-        state = ""
-    else:
-        state = "online" if online else "OFFLINE"
+    state = "" if online is None else ("online" if online else "OFFLINE")
     bits = [b for b in (state, f"{bat}%" if bat is not None else "") if b]
-    return f"{name} — {' '.join(bits)}" if bits else name
+    label = f"{name} — {' '.join(bits)}" if bits else name
+    # is_work=0 means SemySMS won't use this device to send, even when online.
+    if status.get("for_sending") is False:
+        label += " (sending off)"
+    return label
 
 
 def label_to_name(label):
     """Recover the plain SIM name from a decorated dropdown label."""
     return str(label).split(" — ")[0].strip()
+
+
+def is_unusable(status):
+    """Offline, or online but disabled for sending — either way, sends fail."""
+    if not status:
+        return False
+    return status.get("online") is False or status.get("for_sending") is False
 
 
 def is_offline(status):

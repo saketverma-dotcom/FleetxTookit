@@ -8,10 +8,16 @@ import time
 from fleetx_toolkit import device_status as DS
 
 
-SAMPLE = {"data": [
-    {"id": 350374, "name": "Airtel Pulse", "is_online": 1, "battery": 87},
-    {"id": 338826, "name": "Voda Restrict 1", "is_online": 0, "battery": 42},
-    {"id": 355387, "name": "Airtel 1", "is_work": 1, "power": "55"},
+# Fields exactly as documented at semysms.net/api.php (devices.php):
+#   bat = battery %, power = service on/off (online), device_name = name,
+#   is_work = "use for sending" (a setting, NOT online state)
+SAMPLE = {"code": 0, "count": 3, "data": [
+    {"id": 350374, "device_name": "Airtel Pulse", "power": 1, "is_work": 1,
+     "bat": "87", "date_last_active": "2026-01-09 14:25:29.548563"},
+    {"id": 338826, "device_name": "Voda Restrict 1", "power": 0, "is_work": 1,
+     "bat": "42"},
+    {"id": 355387, "device_name": "Airtel 1", "power": 1, "is_work": 0,
+     "bat": 55},
     {"id": "weird"},                      # unknown state must not crash
 ]}
 
@@ -22,10 +28,33 @@ class TestParse:
         assert d["350374"]["online"] is True and d["350374"]["battery"] == 87
         assert d["338826"]["online"] is False and d["338826"]["battery"] == 42
 
-    def test_alternate_field_names(self):
+    def test_battery_comes_from_bat_not_power(self):
+        """REGRESSION: `power` is an on/off flag. Reading it as the battery
+        made every SIM display "1%"."""
         d = DS.parse_devices(SAMPLE)
-        assert d["355387"]["online"] is True      # is_work
-        assert d["355387"]["battery"] == 55       # power, as string
+        assert d["350374"]["battery"] == 87        # bat, not power
+        assert d["350374"]["battery"] != 1
+        assert d["355387"]["battery"] == 55        # bat as an int
+
+    def test_is_work_is_not_online(self):
+        """is_work means "use for sending" — a setting, not online state."""
+        d = DS.parse_devices(SAMPLE)
+        assert d["355387"]["online"] is True       # power=1
+        assert d["355387"]["for_sending"] is False  # is_work=0, kept separate
+
+    def test_device_name_field(self):
+        d = DS.parse_devices(SAMPLE)
+        assert d["350374"]["name"] == "Airtel Pulse"
+
+    def test_docs_example_verbatim(self):
+        doc = {"code": 0, "count": 1, "data": [{
+            "id": 351, "is_arhive": 0, "is_deliv": 1, "is_work": 1, "power": 1,
+            "device_name": "U8186", "dop_name": "", "speed_sms": 1,
+            "date_last_active": "2026-01-09 14:25:29.548563", "version": "40",
+            "manufacturer": "HUAWEI", "android_version": "2.3.6",
+            "bat": "58", "type": 0}]}
+        d = DS.parse_devices(doc)["351"]
+        assert d["battery"] == 58 and d["online"] is True and d["name"] == "U8186"
 
     def test_unknown_state_is_none(self):
         d = DS.parse_devices(SAMPLE)
@@ -37,8 +66,8 @@ class TestParse:
         assert DS.parse_devices({"data": None}) == {}
 
     def test_battery_clamped(self):
-        d = DS.parse_devices({"data": [{"id": 1, "battery": 250},
-                                       {"id": 2, "battery": -5}]})
+        d = DS.parse_devices({"data": [{"id": 1, "bat": 250},
+                                       {"id": 2, "bat": -5}]})
         assert d["1"]["battery"] == 100 and d["2"]["battery"] == 0
 
 

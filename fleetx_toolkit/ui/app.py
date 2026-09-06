@@ -625,8 +625,10 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
                     self.msg_sim.set(DS.format_sim_label(current, st))
                     lbl = getattr(self, "msg_sim_state", None)
                     if lbl is not None and lbl.winfo_exists():
-                        if DS.is_offline(st):
+                        if st and st.get("online") is False:
                             lbl.config(text="  ● OFFLINE", fg="#c62828")
+                        elif st and st.get("for_sending") is False:
+                            lbl.config(text="  ● SENDING OFF", fg="#c62828")
                         else:
                             lbl.config(text="")
             except Exception:
@@ -643,8 +645,10 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
                     self.sms_sim.set(DS.format_sim_label(current, st))
                     lbl2 = getattr(self, "sms_sim_state", None)
                     if lbl2 is not None and lbl2.winfo_exists():
-                        if DS.is_offline(st):
+                        if st and st.get("online") is False:
                             lbl2.config(text="  ● OFFLINE", foreground="#c62828")
+                        elif st and st.get("for_sending") is False:
+                            lbl2.config(text="  ● SENDING OFF", foreground="#c62828")
                         else:
                             lbl2.config(text="")
             except Exception:
