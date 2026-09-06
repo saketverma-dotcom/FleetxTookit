@@ -236,6 +236,16 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
                   font=("Segoe UI", 16, "bold")).grid(row=0, column=0, columnspan=2, pady=(0, 20))
 
         saved_email, saved_pass = load_credentials()
+        # FIX (v3.13.2): load_credentials() only returns an email when the user
+        # logged in with email+password AND ticked "Remember me". After a
+        # manual-token login there were no saved credentials, so the email box
+        # stayed blank and the token lookup (keyed by email) always missed.
+        # Fall back to the last email we recorded in settings.
+        if not saved_email:
+            try:
+                saved_email = str(load_settings().get("last_email", "") or "")
+            except Exception:
+                saved_email = ""
 
         ttk.Label(self.login_frame, text="Email:").grid(row=1, column=0, sticky="e", pady=4)
         self.email_var = tk.StringVar(value=saved_email)
@@ -370,12 +380,18 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
                     self.token = token
                     state.user_email = email
                     self.is_admin_user = is_admin(email)
+                    # v3.13.2: always remember the email + Bearer token so the
+                    # next launch can pre-fill them. The "Remember me" tick
+                    # governs the PASSWORD only.
+                    try:
+                        s = load_settings(); s["last_email"] = email; save_settings(s)
+                    except Exception:
+                        pass
+                    save_bearer_token(email, token)
                     if remember:
                         save_credentials(email, password)
-                        save_bearer_token(email, token)   # v3.13: remember token too
                     else:
                         clear_credentials()
-                        clear_bearer_token(email)
                     self._enter_main()
                 self.after(0, finish)
             else:
@@ -436,6 +452,11 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
             self.token = bearer
             state.user_email = email
             self.is_admin_user = is_admin(email)
+            try:
+                s = load_settings(); s["last_email"] = email; save_settings(s)
+            except Exception:
+                pass
+            save_bearer_token(email, bearer)
             self._enter_main()
         self.after(0, finish)
 
