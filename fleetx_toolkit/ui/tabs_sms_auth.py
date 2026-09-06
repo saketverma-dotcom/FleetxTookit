@@ -203,6 +203,11 @@ class SmsAuthMixin:
             self._sms_build_admin_tab(inner)
         inner.bind("<<NotebookTabChanged>>", self._sms_toggle_log)
         self._sms_toggle_log()
+        # initial (background) device status fetch for both dropdowns
+        try:
+            self._sim_refresh_status()
+        except Exception:
+            pass
 
     def _sms_log(self, msg, tag=None):
         """Write to the SMS Command Live Log (its own box). Falls back to the

@@ -213,3 +213,37 @@ def clear_sms_login():
             keyring.delete_password(SMS_LOGIN_SERVICE, email)
     except Exception:
         pass
+
+
+# ── FleetX Bearer token memory (v3.13) ──
+KEYRING_BEARER_SERVICE = "FleetX-Toolkit-Bearer"
+
+
+def save_bearer_token(email, token):
+    """Remember the FleetX Bearer token for this user on this PC
+    (Credential Manager / DPAPI). Lets them skip re-login next launch."""
+    if keyring is None or not email:
+        return False
+    try:
+        keyring.set_password(KEYRING_BEARER_SERVICE, str(email), str(token or ""))
+        return True
+    except Exception:
+        return False
+
+
+def load_bearer_token(email):
+    if keyring is None or not email:
+        return ""
+    try:
+        return keyring.get_password(KEYRING_BEARER_SERVICE, str(email)) or ""
+    except Exception:
+        return ""
+
+
+def clear_bearer_token(email):
+    if keyring is None or not email:
+        return
+    try:
+        keyring.delete_password(KEYRING_BEARER_SERVICE, str(email))
+    except Exception:
+        pass

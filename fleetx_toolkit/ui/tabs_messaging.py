@@ -9,6 +9,7 @@ from ..config import (MESSAGING_SIMS, MESSAGING_SIM_NAMES, MESSAGING_POLL_SECOND
                       sim_id_for_name)
 from ..storage import load_sms_token
 from .. import messaging as M
+from .. import device_status as DS
 
 
 class MessagingTabMixin:
@@ -46,10 +47,17 @@ class MessagingTabMixin:
         tk.Label(topbar, text="  Messaging", bg=self.C_BG, fg=self.C_TEXT,
                  font=("Segoe UI", 13, "bold")).pack(side="left")
         self.msg_sim = tk.StringVar(value=MESSAGING_SIM_NAMES[0])
-        sim_cb = ttk.Combobox(topbar, textvariable=self.msg_sim, width=14,
+        sim_cb = ttk.Combobox(topbar, textvariable=self.msg_sim, width=26,
                               state="readonly", values=MESSAGING_SIM_NAMES)
         sim_cb.pack(side="left", padx=10)
         sim_cb.bind("<<ComboboxSelected>>", lambda e: self._msg_switch_sim())
+        # refresh device status when the dropdown is opened (cached 60s, async)
+        sim_cb.bind("<Button-1>", lambda e: self._sim_refresh_status())
+        self._msg_sim_cb = sim_cb
+        # red marker for the CURRENTLY SELECTED sim when it is offline
+        self.msg_sim_state = tk.Label(topbar, text="", bg=self.C_BG,
+                                      font=("Segoe UI", 9, "bold"))
+        self.msg_sim_state.pack(side="left")
         self.msg_toggle_btn = tk.Button(topbar, text="▶ Start", relief="flat",
                                         bg=self.C_UNREAD, fg="white", bd=0,
                                         padx=12, pady=4, cursor="hand2",
@@ -160,7 +168,7 @@ class MessagingTabMixin:
         dlg.resizable(False, False)
         frm = ttk.Frame(dlg, padding=12); frm.pack(fill="both", expand=True)
 
-        ttk.Label(frm, text=f"Send from: {self.msg_sim.get()}",
+        ttk.Label(frm, text=f"Send from: {DS.label_to_name(self.msg_sim.get())}",
                   font=("Segoe UI", 9, "bold")).grid(row=0, column=0, columnspan=2, sticky="w")
         ttk.Label(frm, text="To number(s):").grid(row=1, column=0, sticky="e", pady=6)
         num_var = tk.StringVar()
@@ -237,7 +245,7 @@ class MessagingTabMixin:
         self._msg_refresh_conv_list()
         self._msg_render_thread()
         if self._msg_polling:
-            self.msg_status.config(text=f"Watching {self.msg_sim.get()}…", fg="green")
+            self.msg_status.config(text=f"Watching {DS.label_to_name(self.msg_sim.get())}…", fg="green")
 
     def _msg_toggle(self):
         if self._msg_polling:
@@ -254,7 +262,7 @@ class MessagingTabMixin:
         self._msg_idle_cycles = 0
         self._msg_fail_streak = 0
         self.msg_toggle_btn.config(text="⏸ Stop")
-        self.msg_status.config(text=f"Watching {self.msg_sim.get()}…", fg="green")
+        self.msg_status.config(text=f"Watching {DS.label_to_name(self.msg_sim.get())}…", fg="green")
         self._msg_mark_activity()
         self._msg_schedule_idle_check()
         threading.Thread(target=self._msg_poll_loop, daemon=True).start()
@@ -347,7 +355,7 @@ class MessagingTabMixin:
         """Back to normal once a poll succeeds — the old code left a red error
         on screen forever, so users couldn't tell it had recovered."""
         if self._msg_polling:
-            self.msg_status.config(text=f"Watching {self.msg_sim.get()}…", fg="green")
+            self.msg_status.config(text=f"Watching {DS.label_to_name(self.msg_sim.get())}…", fg="green")
 
     def _msg_ingest(self, fresh):
         M.add_messages(self._msg_threads, fresh, "in")
@@ -508,7 +516,7 @@ class MessagingTabMixin:
             self.msg_thread_lbl.config(text="Select a conversation")
             self.msg_thread_box.config(state="disabled")
             return
-        self.msg_thread_lbl.config(text=f"{phone}   ({self.msg_sim.get()})")
+        self.msg_thread_lbl.config(text=f"{phone}   ({DS.label_to_name(self.msg_sim.get())})")
         for m in M.conversation(self._msg_threads, phone):
             t = self._msg_short_time(m.get("date", ""))
             if m["dir"] == "in":

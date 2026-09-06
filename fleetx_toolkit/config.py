@@ -15,7 +15,7 @@ DELAY_MS    = 1250
 TOKEN_PARAM = "udbhav"
 MOBILE_PARAM = "5754236272120"
 
-APP_VERSION = "3.12"
+APP_VERSION = "3.13"
 
 CRED_FILE     = os.path.join(os.path.expanduser("~"), ".fleetx_toolkit_creds.json")
 SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".fleetx_toolkit_settings.json")
@@ -64,6 +64,8 @@ SIM_PROVIDERS  = ["ONOMONDO", "TATA", "AERIS", "AIRTEL", "VODAFONE", "BSNL", "JI
 SEMYSMS_API   = "https://semysms.net/api/3/sms.php"
 SEMYSMS_INBOX_API = "https://semysms.net/api/3/inbox_sms.php"   # incoming SMS list
 SEMYSMS_OUTBOX_API = "https://semysms.net/api/3/outbox_sms.php" # outgoing + status
+SEMYSMS_DEVICES_API = "https://semysms.net/api/3/devices.php"   # battery + online state
+DEVICE_STATUS_TTL   = 60        # seconds to cache device status
 MESSAGING_POLL_SECONDS = 7
 # device id -> friendly name (dropdown shows the names, API gets the id)
 SEMYSMS_SIMS  = {
@@ -81,8 +83,13 @@ MESSAGING_SIMS = dict(SEMYSMS_SIMS)
 MESSAGING_SIM_NAMES = list(MESSAGING_SIMS.values())
 
 def sim_id_for_name(name):
-    """Friendly SIM name -> device id, or '' if unknown."""
-    return _SIM_NAME_TO_ID.get((name or "").strip(), "")
+    """Friendly SIM name -> device id, or '' if unknown.
+
+    Dropdown labels may carry a status suffix ("Airtel Pulse — online 87%"),
+    so strip anything after the separator before looking up.
+    """
+    key = str(name or "").split(" — ")[0].strip()
+    return _SIM_NAME_TO_ID.get(key, "")
 
 # Ticket assignee directory  (display name -> FleetX assignee id)
 ASSIGNEE_DIRECTORY = {

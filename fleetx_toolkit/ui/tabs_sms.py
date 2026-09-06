@@ -30,8 +30,15 @@ class SmsTabMixin:
         sf = ttk.Frame(tab); sf.pack(fill="x", pady=(8, 2))
         ttk.Label(sf, text="SIM to send from:").pack(side="left")
         self.sms_sim = tk.StringVar(value=SEMYSMS_SIM_NAMES[0])
-        ttk.Combobox(sf, textvariable=self.sms_sim, width=18, state="readonly",
-                     values=SEMYSMS_SIM_NAMES).pack(side="left", padx=6)
+        _sim_cb = ttk.Combobox(sf, textvariable=self.sms_sim, width=28,
+                               state="readonly", values=SEMYSMS_SIM_NAMES)
+        _sim_cb.pack(side="left", padx=6)
+        # refresh battery/online when opened (cached 60s, fetched off-thread)
+        _sim_cb.bind("<Button-1>", lambda e: self._sim_refresh_status())
+        _sim_cb.bind("<<ComboboxSelected>>", lambda e: self._sim_apply_status())
+        self._sms_sim_cb = _sim_cb
+        self.sms_sim_state = ttk.Label(sf, text="", font=("Segoe UI", 9, "bold"))
+        self.sms_sim_state.pack(side="left")
         ttk.Label(sf, text="(used for pasted numbers, and for Excel rows with a blank SIM Name)",
                   foreground="gray").pack(side="left")
 

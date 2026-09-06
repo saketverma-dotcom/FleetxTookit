@@ -24,6 +24,7 @@ from ..io_utils import (load_excel_column, load_excel_records, parse_curl_comman
                         parse_pasted_ids, parse_pasted_pairs, save_result_log)
 from ..storage import (clear_credentials, load_commands, load_credentials,
                        load_gh_token, save_commands, save_credentials,
+                       save_bearer_token, load_bearer_token, clear_bearer_token,
                        save_gh_token)
 from ..updater import (apply_update_and_restart, check_update, download_update)
 from ..logic import RETRY_BACKOFFS, retry_wait
@@ -259,7 +260,9 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
             row=6, column=0, columnspan=2, sticky="ew", pady=10)
         ttk.Label(self.login_frame, text="Or paste Bearer token directly:").grid(
             row=7, column=0, columnspan=2)
-        self.token_var = tk.StringVar()
+        # v3.13: pre-fill the last Bearer token saved for this email so the
+        # user can sign straight back in with "Use Token".
+        self.token_var = tk.StringVar(value=load_bearer_token(saved_email) if saved_email else "")
         ttk.Entry(self.login_frame, textvariable=self.token_var, width=48).grid(
             row=8, column=0, columnspan=2, pady=4)
         ttk.Button(self.login_frame, text="Use Token", command=self.use_manual_token).grid(
@@ -369,8 +372,10 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
                     self.is_admin_user = is_admin(email)
                     if remember:
                         save_credentials(email, password)
+                        save_bearer_token(email, token)   # v3.13: remember token too
                     else:
                         clear_credentials()
+                        clear_bearer_token(email)
                     self._enter_main()
                 self.after(0, finish)
             else:
@@ -453,6 +458,12 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         self.token = tok
         state.user_email = email
         self.is_admin_user = is_admin(email)
+        # v3.13: remember email + token locally for next launch
+        save_bearer_token(email, tok)
+        try:
+            s = load_settings(); s["last_email"] = email; save_settings(s)
+        except Exception:
+            pass
         self._enter_main()
     def _scrollable_tab(self, text, padding=8):
         """Create a notebook tab whose content scrolls vertically when it's
@@ -568,6 +579,76 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         btns.pack(fill="x", padx=8, pady=(0, 8))
         ttk.Button(btns, text="STOP current run", command=self._stop).pack(side="right")
         self.nb.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+
+    # ── SIM device status (battery / online) shared by both SMS tabs ──
+
+    def _sim_refresh_status(self, force=False):
+        """Kick off a cached, background refresh of SemySMS device status.
+        Never blocks: the dropdown keeps working with the last known values,
+        and the labels update when the fetch returns."""
+        from .. import device_status as DS
+        token = self._current_sms_token()
+        if not token:
+            return
+        DS.device_status.refresh_async(
+            token, on_done=lambda data: self.after(0, self._sim_apply_status),
+            force=force)
+        # paint whatever we already have, immediately
+        self._sim_apply_status()
+
+    def _sim_apply_status(self):
+        """Update both dropdowns' item labels and the red offline marker.
+        Cheap and synchronous — pure string work on at most 6 items."""
+        from .. import device_status as DS
+        from ..config import (MESSAGING_SIMS, MESSAGING_SIM_NAMES,
+                              SEMYSMS_SIMS, SEMYSMS_SIM_NAMES, sim_id_for_name)
+
+        def decorate(names, id_map):
+            out = []
+            for nm in names:
+                did = None
+                for k, v in id_map.items():
+                    if v == nm:
+                        did = k
+                        break
+                out.append(DS.format_sim_label(nm, DS.device_status.get(did)))
+            return out
+
+        # Messaging tab
+        cb = getattr(self, "_msg_sim_cb", None)
+        if cb is not None:
+            try:
+                if cb.winfo_exists():
+                    current = DS.label_to_name(self.msg_sim.get())
+                    cb.config(values=decorate(MESSAGING_SIM_NAMES, MESSAGING_SIMS))
+                    st = DS.device_status.get(sim_id_for_name(current))
+                    self.msg_sim.set(DS.format_sim_label(current, st))
+                    lbl = getattr(self, "msg_sim_state", None)
+                    if lbl is not None and lbl.winfo_exists():
+                        if DS.is_offline(st):
+                            lbl.config(text="  ● OFFLINE", fg="#c62828")
+                        else:
+                            lbl.config(text="")
+            except Exception:
+                pass
+
+        # SMS Command tab
+        cb2 = getattr(self, "_sms_sim_cb", None)
+        if cb2 is not None:
+            try:
+                if cb2.winfo_exists():
+                    current = DS.label_to_name(self.sms_sim.get())
+                    cb2.config(values=decorate(SEMYSMS_SIM_NAMES, SEMYSMS_SIMS))
+                    st = DS.device_status.get(sim_id_for_name(current))
+                    self.sms_sim.set(DS.format_sim_label(current, st))
+                    lbl2 = getattr(self, "sms_sim_state", None)
+                    if lbl2 is not None and lbl2.winfo_exists():
+                        if DS.is_offline(st):
+                            lbl2.config(text="  ● OFFLINE", foreground="#c62828")
+                        else:
+                            lbl2.config(text="")
+            except Exception:
+                pass
 
     def _current_sms_token(self):
         """SemySMS token — stored LOCALLY per user in Windows Credential Manager
