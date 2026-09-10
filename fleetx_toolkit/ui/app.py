@@ -35,10 +35,12 @@ from .tabs_misc import MiscTabsMixin
 from .tabs_sms import SmsTabMixin
 from .tabs_messaging import MessagingTabMixin
 from .tabs_sms_auth import SmsAuthMixin
+from .tabs_asset_assign import AssetAssignTabMixin
 
 
 class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
-                    SmsTabMixin, MessagingTabMixin, SmsAuthMixin, AdminTabsMixin, tk.Tk):
+                    SmsTabMixin, MessagingTabMixin, SmsAuthMixin,
+                    AssetAssignTabMixin, AdminTabsMixin, tk.Tk):
     """Main window. Core plumbing lives here (login, run loop, settings);
     tab UIs come from the mixins."""
 
@@ -558,6 +560,7 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
             "SensorType":         self._tab_sensor_type,
             "Assets":             self._tab_assets,
             "Tickets":            self._tab_tickets,
+            "Asset Assign/Attach": self._tab_asset_assign,
         }
         for tab_name in CONTROLLABLE_TABS:
             if tab_name in allowed and tab_name in tab_builders:

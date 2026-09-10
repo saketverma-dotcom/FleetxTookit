@@ -58,3 +58,116 @@ def split_tickets_by_counts(tickets, chosen):
             assignments.append((t, rest_targets[i % len(rest_targets)]))
         remaining = []
     return assignments, len(remaining), None
+
+
+# ─────────────── Asset assign / attach row parsing (v3.14) ───────────────
+#
+# Two flows share these parsers:
+#   • paste  — one record per line, comma-separated
+#   • Excel  — one record per row, by column name
+# A default accountId (from the tab) fills in whenever a record omits it.
+
+def _clean(v):
+    """Trim a cell/field to a string; None and blanks become ''."""
+    if v is None:
+        return ""
+    s = str(v).strip()
+    return "" if s.lower() in ("none", "nan") else s
+
+
+def parse_account_paste(text, default_account):
+    """Lines of 'assetId' or 'assetId,accountId'.
+    Returns (rows, errors); rows are dicts {asset_id, account_id}."""
+    rows, errors = [], []
+    for lineno, raw in enumerate(str(text or "").splitlines(), start=1):
+        line = raw.strip()
+        if not line:
+            continue
+        parts = [_clean(p) for p in line.split(",")]
+        asset = parts[0] if parts else ""
+        acct = parts[1] if len(parts) > 1 and parts[1] else _clean(default_account)
+        if not asset:
+            errors.append(f"Line {lineno}: missing asset id.")
+            continue
+        if not acct:
+            errors.append(f"Line {lineno}: no accountId (and no default set).")
+            continue
+        rows.append({"asset_id": asset, "account_id": acct})
+    return rows, errors
+
+
+def parse_account_records(records, default_account):
+    """Excel rows with columns assetid / accountid (accountid optional)."""
+    rows, errors = [], []
+    for i, rec in enumerate(records or [], start=2):     # row 1 is the header
+        asset = _clean(rec.get("assetid") or rec.get("asset_id") or rec.get("asset"))
+        acct = _clean(rec.get("accountid") or rec.get("account_id")) or _clean(default_account)
+        if not asset:
+            errors.append(f"Row {i}: missing assetId.")
+            continue
+        if not acct:
+            errors.append(f"Row {i}: no accountId (and no default set).")
+            continue
+        rows.append({"asset_id": asset, "account_id": acct})
+    return rows, errors
+
+
+def parse_attach_paste(text, default_account):
+    """Lines of 'assetId,vehicleId' or 'assetId,vehicleId,accountId'."""
+    rows, errors = [], []
+    for lineno, raw in enumerate(str(text or "").splitlines(), start=1):
+        line = raw.strip()
+        if not line:
+            continue
+        parts = [_clean(p) for p in line.split(",")]
+        asset = parts[0] if parts else ""
+        vehicle = parts[1] if len(parts) > 1 else ""
+        acct = parts[2] if len(parts) > 2 and parts[2] else _clean(default_account)
+        if not asset or not vehicle:
+            errors.append(f"Line {lineno}: need assetId,vehicleId.")
+            continue
+        if not str(vehicle).isdigit():
+            errors.append(f"Line {lineno}: vehicleId '{vehicle}' must be numeric.")
+            continue
+        if not acct:
+            errors.append(f"Line {lineno}: no accountId (and no default set).")
+            continue
+        rows.append({"asset_id": asset, "vehicle_id": int(vehicle),
+                     "account_id": acct})
+    return rows, errors
+
+
+def parse_attach_records(records, default_account):
+    """Excel rows with columns assetid / vehicleid / accountid (optional)."""
+    rows, errors = [], []
+    for i, rec in enumerate(records or [], start=2):
+        asset = _clean(rec.get("assetid") or rec.get("asset_id") or rec.get("asset"))
+        vehicle = _clean(rec.get("vehicleid") or rec.get("vehicle_id") or rec.get("vehicle"))
+        acct = _clean(rec.get("accountid") or rec.get("account_id")) or _clean(default_account)
+        if not asset or not vehicle:
+            errors.append(f"Row {i}: need assetId and vehicleId.")
+            continue
+        if not vehicle.isdigit():
+            errors.append(f"Row {i}: vehicleId '{vehicle}' must be numeric.")
+            continue
+        if not acct:
+            errors.append(f"Row {i}: no accountId (and no default set).")
+            continue
+        rows.append({"asset_id": asset, "vehicle_id": int(vehicle),
+                     "account_id": acct})
+    return rows, errors
+
+
+def build_account_assign(row):
+    """(params, json_body) for PUT /assets/account — body is an ARRAY, and we
+    send exactly one asset per call so each row reports its own result."""
+    return {"accountId": str(row["account_id"])}, [str(row["asset_id"])]
+
+
+def build_attach_body(row, asset_type):
+    """JSON body for POST /assets/attach."""
+    return {"assetId": str(row["asset_id"]),
+            "vehicleId": int(row["vehicle_id"]),
+            "type": asset_type,
+            "accountId": int(row["account_id"]) if str(row["account_id"]).isdigit()
+                         else row["account_id"]}

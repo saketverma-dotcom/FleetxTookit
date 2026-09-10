@@ -6,6 +6,10 @@ import sys
 API_BASE    = "https://api.fleetx.io"
 APP_BASE    = "https://app.fleetx.io"
 LOGIN_URL   = f"{API_BASE}/api/v1/login"
+# Asset assign / attach (v3.14)
+ASSET_ACCOUNT_URL = f"{API_BASE}/api/v1/assets/account"   # PUT ?accountId=..  body ["assetId"]
+ASSET_ATTACH_URL  = f"{API_BASE}/api/v1/assets/attach"    # POST {assetId,vehicleId,type,accountId}
+ASSET_ATTACH_TYPE = "CAMERA"                               # fixed per requirement
 # Google One-Tap SSO (v3.4): reuse FleetX's own OAuth client + exchange endpoint
 GOOGLE_LOGIN_URL   = f"{API_BASE}/api/v2/login/google-one-tap"
 GOOGLE_CLIENT_ID   = "135264764063-hcs8ri1mm7p7bq0p69krvlntlpkcq4re.apps.googleusercontent.com"
@@ -15,7 +19,7 @@ DELAY_MS    = 1250
 TOKEN_PARAM = "udbhav"
 MOBILE_PARAM = "5754236272120"
 
-APP_VERSION = "3.13.3"
+APP_VERSION = "3.14"
 
 CRED_FILE     = os.path.join(os.path.expanduser("~"), ".fleetx_toolkit_creds.json")
 SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".fleetx_toolkit_settings.json")
@@ -29,7 +33,7 @@ ALLOWED_DOMAIN = "@fleetx.io"                        # only fleetx emails allowe
 CONTROLLABLE_TABS = [
     "Device Add", "SIM Inventory", "SIM Update", "Vehicle-Device Map",
     "Send Command", "Sequential 2-Phase", "SensorType", "Assets",
-    "Tickets", "SMS Command", "Messaging",
+    "Tickets", "SMS Command", "Messaging", "Asset Assign/Attach",
 ]
 
 # Access file / logs sit NEXT TO the exe (or the entry script in dev mode).
