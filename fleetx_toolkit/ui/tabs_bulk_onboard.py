@@ -1,4 +1,5 @@
 import datetime
+import time
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
@@ -68,9 +69,24 @@ class BulkOnboardTabMixin:
         ttk.Label(tab, text="Paste:  deviceId, vehicleId, accountId  (all three required)"
                             "  [, sim [, serialNumber [, deviceType]]]",
                   foreground="gray").pack(anchor="w", pady=(6, 0))
-        ttk.Label(tab, text="Excel columns:  deviceId | vehicleId | accountId | sim | "
-                            "serialNumber | deviceType",
+        ttk.Label(tab, text="Skipping sim/serial: omit them, or leave the positions empty "
+                            "— e.g.  imei, vehicleId, accountId, , , FMB920",
                   foreground="gray").pack(anchor="w")
+        ttk.Label(tab, text="Excel columns:  deviceId | vehicleId | accountId | sim | "
+                            "serialNumber | deviceType   (blank cells are fine)",
+                  foreground="gray").pack(anchor="w")
+
+        # ── pacing ──
+        p = ttk.Frame(tab); p.pack(fill="x", pady=(6, 0))
+        ttk.Label(p, text="Gap between steps (ms):").pack(side="left")
+        self.bo_step_delay = tk.StringVar(value="600")
+        ttk.Entry(p, textvariable=self.bo_step_delay, width=7).pack(side="left", padx=4)
+        ttk.Label(p, text="Gap between rows (ms):").pack(side="left", padx=(14, 0))
+        self.bo_row_delay = tk.StringVar(value="1000")
+        ttk.Entry(p, textvariable=self.bo_row_delay, width=7).pack(side="left", padx=4)
+        ttk.Label(p, text="(a gap gives FleetX time to register each change before "
+                          "the next call depends on it)",
+                  foreground="gray").pack(side="left", padx=6)
         self.bo_src = self._input_source(tab, "Onboarding rows")
 
         b = ttk.Frame(tab); b.pack(fill="x", pady=2)
@@ -91,6 +107,16 @@ class BulkOnboardTabMixin:
                 "assetType": self.bo_asset_type.get(),
                 "assetSupplier": self.bo_supplier.get(),
                 "issuedToUserId": self.bo_user.get()}
+
+    def _bo_delays(self):
+        """(step_gap_seconds, row_gap_seconds) from the pacing fields."""
+        def ms(var, default):
+            try:
+                v = int(float(var.get().strip() or default))
+                return max(0, min(60000, v)) / 1000.0
+            except Exception:
+                return default / 1000.0
+        return ms(self.bo_step_delay, 600), ms(self.bo_row_delay, 1000)
 
     def _bo_collect(self):
         defaults = self._bo_defaults()
@@ -178,17 +204,27 @@ class BulkOnboardTabMixin:
             self.log("Dry run complete.", "ok")
             return
 
-        self.log(f"── Bulk Onboard: {len(rows)} row(s) × 5 steps ──", "info")
+        step_gap, row_gap = self._bo_delays()
+        self.log(f"── Bulk Onboard: {len(rows)} row(s) × 5 steps "
+                 f"(step gap {step_gap:g}s, row gap {row_gap:g}s) ──", "info")
         results = []
         for idx, row in enumerate(rows, start=1):
+            if idx > 1 and row_gap and not self.stop_flag:
+                time.sleep(row_gap)
             if self.stop_flag:
                 self.log("STOPPED by user.", "err")
                 break
             statuses, halted = {}, False
             self.log(f"[{idx}/{len(rows)}] device {row['device_id']}", "info")
-            for name, call in self._bo_step_calls(row):
+            for step_no, (name, call) in enumerate(self._bo_step_calls(row)):
                 if halted:
                     statuses[name] = ("SKIPPED", "", "")
+                    continue
+                if step_no > 0 and step_gap:
+                    time.sleep(step_gap)          # let the previous change register
+                if self.stop_flag:
+                    statuses[name] = ("SKIPPED", "", "stopped by user")
+                    halted = True
                     continue
                 try:
                     r = call()
