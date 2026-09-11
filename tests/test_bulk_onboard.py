@@ -94,8 +94,14 @@ class TestBodies:
     def test_device_body_keeps_client_supplier(self):
         b = L.build_onboard_device(self._row())
         assert b["deviceSupplier"] == "CLIENT"      # device supplier unchanged
-        assert b["id"] == b["imei"] == "862798051206510"
         assert b["sim"] == b["mobile"] == "8991000012345"
+
+    def test_device_id_and_imei_are_integers(self):
+        """REGRESSION: sending id/imei as strings differed from the working
+        Device Add tab (which casts to int) and caused 409 responses."""
+        b = L.build_onboard_device(self._row())
+        assert b["id"] == b["imei"] == 862798051206510
+        assert isinstance(b["id"], int) and isinstance(b["imei"], int)
 
     def test_device_body_drops_blanks(self):
         rows, _ = L.parse_onboard_paste("862798051206510,2793621,17809", DEFAULTS)

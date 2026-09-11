@@ -230,6 +230,16 @@ class BulkOnboardTabMixin:
                     r = call()
                     ok = 200 <= r.status_code < 300
                     body = (r.text or "")[:300]
+                    # A 409 on a CREATE step means the object already exists —
+                    # e.g. a previous partial run created it. That must not
+                    # stop the row, or those rows could never finish steps 3-5.
+                    already = (r.status_code == 409
+                               and name in ("Device Add", "Asset Add"))
+                    if already:
+                        statuses[name] = ("EXISTS", r.status_code, body)
+                        self.log(f"    ⤼ {name} already exists (409) — continuing",
+                                 "info")
+                        continue
                     statuses[name] = ("SUCCESS" if ok else "FAILED", r.status_code, body)
                     self.log(f"    {'✓' if ok else '✗'} {name} ({r.status_code})",
                              "ok" if ok else "err")
@@ -237,6 +247,8 @@ class BulkOnboardTabMixin:
                         halted = True
                         self.log(f"      ↳ stopping this row; remaining steps skipped",
                                  "err")
+                        if body:
+                            self.log(f"      ↳ {body[:160]}", "err")
                 except Exception as e:
                     statuses[name] = ("ERROR", "", str(e)[:300])
                     self.log(f"    ✗ {name} — {e}", "err")
@@ -265,6 +277,7 @@ class BulkOnboardTabMixin:
             green = PatternFill("solid", fgColor="C6EFCE")
             red = PatternFill("solid", fgColor="FFC7CE")
             grey = PatternFill("solid", fgColor="E0E0E0")
+            yellow = PatternFill("solid", fgColor="FFEB9C")
             ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             for row, statuses, done in results:
                 line = [row["device_id"], row["asset_id"], row["vehicle_id"],
@@ -278,6 +291,7 @@ class BulkOnboardTabMixin:
                     cell = ws.cell(row=ws.max_row, column=i)
                     txt = str(cell.value or "")
                     cell.fill = (green if txt.startswith("SUCCESS")
+                                 else yellow if txt.startswith("EXISTS")
                                  else grey if txt.startswith("SKIPPED")
                                  else red if txt else None) or cell.fill
             for i in range(1, len(headers) + 1):

@@ -257,8 +257,18 @@ def _onboard_row(rec, defaults, where):
 
 
 def build_onboard_device(row):
-    """Step 1 body. deviceSupplier stays CLIENT (unchanged by request)."""
-    payload = {"id": row["device_id"], "imei": row["device_id"],
+    """Step 1 body — must match the standalone Device Add tab exactly.
+
+    id/imei are sent as INTEGERS (the working Camera Quick Add does
+    ``int(imei)``); sending them as strings was the one difference between
+    this flow and the tab that works, and it produced 409 responses.
+    deviceSupplier stays CLIENT (unchanged by request).
+    """
+    try:
+        dev = int(row["device_id"])
+    except (TypeError, ValueError):
+        dev = row["device_id"]
+    payload = {"id": dev, "imei": dev,
                "deviceType": row["device_type"], "deviceSupplier": "CLIENT",
                "sim": row["sim"], "mobile": row["sim"],
                "serialNumber": row["serial_number"]}
