@@ -171,3 +171,106 @@ def build_attach_body(row, asset_type):
             "type": asset_type,
             "accountId": int(row["account_id"]) if str(row["account_id"]).isdigit()
                          else row["account_id"]}
+
+
+# ─────────────── Bulk Onboard: 5-step sequential flow (v3.15) ───────────────
+#
+# Per row, in order:
+#   1 Device Add            POST /api/v1/devices/
+#   2 Asset Add             POST /api/v1/assets
+#   3 Vehicle-Device Map    POST /api/v1/vehicles/device
+#   4 Asset -> Account      PUT  /api/v1/assets/account?accountId=
+#   5 Asset -> Vehicle      POST /api/v1/assets/attach
+# assetId == deviceId (the IMEI), so it is not a separate column.
+# A failing step stops that row; remaining steps are marked SKIPPED.
+
+ONBOARD_STEPS = ["Device Add", "Asset Add", "Vehicle Map",
+                 "Asset→Account", "Asset→Vehicle"]
+
+ONBOARD_COLUMNS = ["deviceid", "vehicleid", "accountid", "sim",
+                   "serialnumber", "devicetype"]
+
+
+def parse_onboard_paste(text, defaults):
+    """Lines of: deviceId, vehicleId, accountId [, sim [, serialNumber [, deviceType]]]
+    Returns (rows, errors)."""
+    rows, errors = [], []
+    for lineno, raw in enumerate(str(text or "").splitlines(), start=1):
+        line = raw.strip()
+        if not line:
+            continue
+        p = [_clean(x) for x in line.split(",")]
+        rec = {
+            "deviceid": p[0] if len(p) > 0 else "",
+            "vehicleid": p[1] if len(p) > 1 else "",
+            "accountid": p[2] if len(p) > 2 else "",
+            "sim": p[3] if len(p) > 3 else "",
+            "serialnumber": p[4] if len(p) > 4 else "",
+            "devicetype": p[5] if len(p) > 5 else "",
+        }
+        row, err = _onboard_row(rec, defaults, f"Line {lineno}")
+        (rows if row else errors).append(row or err)
+    return rows, errors
+
+
+def parse_onboard_records(records, defaults):
+    """Excel rows keyed by column name (see ONBOARD_COLUMNS)."""
+    rows, errors = [], []
+    for i, rec in enumerate(records or [], start=2):
+        norm = {}
+        for k, v in (rec or {}).items():
+            key = str(k or "").strip().lower().replace("_", "")
+            norm[key] = v
+        row, err = _onboard_row(norm, defaults, f"Row {i}")
+        (rows if row else errors).append(row or err)
+    return rows, errors
+
+
+def _onboard_row(rec, defaults, where):
+    """Validate one record. Returns (row, None) or (None, error-string)."""
+    device = _clean(rec.get("deviceid") or rec.get("imei") or rec.get("id"))
+    vehicle = _clean(rec.get("vehicleid") or rec.get("vehicle"))
+    # accountId is REQUIRED per row — deliberately no default fallback, so a
+    # missing value stops that row instead of silently using someone else's
+    # account.
+    account = _clean(rec.get("accountid") or rec.get("account"))
+    if not device:
+        return None, f"{where}: missing deviceId."
+    if not device.isdigit():
+        return None, f"{where}: deviceId '{device}' must be numeric (IMEI)."
+    if not vehicle:
+        return None, f"{where}: missing vehicleId."
+    if not vehicle.isdigit():
+        return None, f"{where}: vehicleId '{vehicle}' must be numeric."
+    if not account:
+        return None, f"{where}: accountId is required."
+    return {
+        "device_id": device,
+        "asset_id": device,                 # assetId == deviceId (confirmed)
+        "vehicle_id": int(vehicle),
+        "account_id": account,
+        "sim": _clean(rec.get("sim")),
+        "serial_number": _clean(rec.get("serialnumber") or rec.get("serial")),
+        # per-row value wins; otherwise the run-level default
+        "device_type": _clean(rec.get("devicetype")) or _clean(defaults.get("deviceType")),
+    }, None
+
+
+def build_onboard_device(row):
+    """Step 1 body. deviceSupplier stays CLIENT (unchanged by request)."""
+    payload = {"id": row["device_id"], "imei": row["device_id"],
+               "deviceType": row["device_type"], "deviceSupplier": "CLIENT",
+               "sim": row["sim"], "mobile": row["sim"],
+               "serialNumber": row["serial_number"]}
+    return {k: v for k, v in payload.items() if v not in (None, "", "None")}
+
+
+def build_onboard_asset(row, defaults):
+    """Step 2 body. assetId/name/productId all equal the device id."""
+    aid = int(row["asset_id"])
+    return {"assetId": aid, "name": aid, "productId": aid,
+            "supplier": _clean(defaults.get("assetSupplier")) or "CLIENT",
+            "model": _clean(defaults.get("assetModel")),
+            "type": _clean(defaults.get("assetType")),
+            "status": "ACTIVE",
+            "issuedToUserId": int(_clean(defaults.get("issuedToUserId")) or 0)}

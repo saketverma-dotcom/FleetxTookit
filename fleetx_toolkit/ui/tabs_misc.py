@@ -16,7 +16,7 @@ from ..access_control import (allowed_tabs_for, fetch_remote_access, is_admin,
                               is_authorized, load_access, push_access_to_gist)
 from ..api_client import api_headers
 from ..config import (ACCESS_FILE, ACCESS_URL, ADMIN_EMAILS, ALLOWED_DOMAIN,
-                      API_BASE, APP_BASE, APP_VERSION, ASSIGNEE_DIRECTORY,
+                      API_BASE, APP_BASE, APP_VERSION, ASSET_SUPPLIERS, ASSIGNEE_DIRECTORY,
                       CLIENT_ID, CONTROLLABLE_TABS, DELAY_MS, LOGIN_URL,
                       LOGS_DIR, MOBILE_PARAM, SENSOR_PRESETS, SIM_PROVIDERS,
                       TOKEN_PARAM, load_settings, save_settings)
@@ -106,6 +106,10 @@ class MiscTabsMixin:
         ttk.Label(r1, text="issuedToUserId:").pack(side="left", padx=(10, 0))
         self.asset_user = tk.StringVar(value="14203")
         ttk.Entry(r1, textvariable=self.asset_user, width=10).pack(side="left", padx=4)
+        ttk.Label(r1, text="Supplier:").pack(side="left", padx=(10, 0))
+        self.asset_add_supplier = tk.StringVar(value="CLIENT")
+        ttk.Combobox(r1, textvariable=self.asset_add_supplier, width=14,
+                     values=ASSET_SUPPLIERS).pack(side="left", padx=4)
 
         self.asset_src = self._input_source(f1, "Asset IDs (= name = productId)")
         ttk.Button(f1, text="▶ Add Assets",
@@ -125,7 +129,8 @@ class MiscTabsMixin:
         if not ids: return
 
         def fn(aid):
-            payload = {"assetId": int(aid), "name": int(aid), "supplier": "CLIENT",
+            payload = {"assetId": int(aid), "name": int(aid),
+                       "supplier": (self.asset_add_supplier.get().strip() or "CLIENT"),
                        "model": self.asset_model.get().strip(),
                        "type": self.asset_type.get().strip(),
                        "productId": int(aid), "status": "ACTIVE",
@@ -133,8 +138,9 @@ class MiscTabsMixin:
             r = session.post(f"{API_BASE}/api/v1/assets", json=payload,
                               headers=api_headers(self.token, content_type="application/json"),
                               timeout=30)
-            return (aid, self.asset_model.get()), r
-        self._loop(ids, "Asset Add", fn, ["Asset ID", "Model"])
+            return (aid, self.asset_model.get(),
+                    self.asset_add_supplier.get().strip() or "CLIENT"), r
+        self._loop(ids, "Asset Add", fn, ["Asset ID", "Model", "Supplier"])
     def _run_asset_update(self):
         ids = self._get_ids(self.asset_src)
         if not ids: return

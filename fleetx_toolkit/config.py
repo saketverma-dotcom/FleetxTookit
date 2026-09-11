@@ -19,7 +19,7 @@ DELAY_MS    = 1250
 TOKEN_PARAM = "udbhav"
 MOBILE_PARAM = "5754236272120"
 
-APP_VERSION = "3.14"
+APP_VERSION = "3.15.1"
 
 CRED_FILE     = os.path.join(os.path.expanduser("~"), ".fleetx_toolkit_creds.json")
 SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".fleetx_toolkit_settings.json")
@@ -34,6 +34,7 @@ CONTROLLABLE_TABS = [
     "Device Add", "SIM Inventory", "SIM Update", "Vehicle-Device Map",
     "Send Command", "Sequential 2-Phase", "SensorType", "Assets",
     "Tickets", "SMS Command", "Messaging", "Asset Assign/Attach",
+    "Bulk Onboard",
 ]
 
 # Access file / logs sit NEXT TO the exe (or the entry script in dev mode).
@@ -63,6 +64,8 @@ SENSOR_PRESETS = [
     "TATA_EXPRESS_T_EV_WITH_ZIPTRON_BATTERY_TFT100_SOS_AIN2",
 ]
 SIM_PROVIDERS  = ["ONOMONDO", "TATA", "AERIS", "AIRTEL", "VODAFONE", "BSNL", "JIO"]
+# Asset supplier choices (editable — type any value not in the list)
+ASSET_SUPPLIERS = ["CLIENT", "HHD", "ESCORT", "JOINTECH", "HOWEN", "STREAMAX"]
 
 # ─────────────── SemySMS (SMS Command tab) ───────────────
 SEMYSMS_API   = "https://semysms.net/api/3/sms.php"
