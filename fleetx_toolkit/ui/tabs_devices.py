@@ -17,7 +17,8 @@ from ..access_control import (allowed_tabs_for, fetch_remote_access, is_admin,
 from ..api_client import api_headers
 from ..config import (ACCESS_FILE, ACCESS_URL, ADMIN_EMAILS, ALLOWED_DOMAIN,
                       API_BASE, APP_BASE, APP_VERSION, ASSIGNEE_DIRECTORY,
-                      CLIENT_ID, CONTROLLABLE_TABS, DELAY_MS, LOGIN_URL,
+                      CLIENT_ID, CONTROLLABLE_TABS, DELAY_MS, DEVICE_SUPPLIERS,
+                      LOGIN_URL,
                       LOGS_DIR, MOBILE_PARAM, SENSOR_PRESETS, SIM_PROVIDERS,
                       TOKEN_PARAM, load_settings, save_settings)
 from ..io_utils import (load_excel_column, load_excel_records, parse_curl_command,
@@ -59,8 +60,12 @@ class DeviceTabsMixin:
         ttk.Combobox(row, textvariable=self.cam_type, width=22,
                      values=["LCD40AI-2CH", "LCD40", "LCD603", "FMB920",
                              "Cello-CANiQ 2G K-Line"]).pack(side="left", padx=6)
+        ttk.Label(row, text="Supplier:").pack(side="left", padx=(10, 0))
+        self.dev_supplier = tk.StringVar(value="CLIENT")
+        ttk.Combobox(row, textvariable=self.dev_supplier, width=14,
+                     values=DEVICE_SUPPLIERS).pack(side="left", padx=4)
         self.cam_src = self._input_source(f2, "IMEIs")
-        ttk.Button(f2, text="▶ Add Devices (id = imei, supplier CLIENT)",
+        ttk.Button(f2, text="▶ Add Devices (id = imei)",
                    command=lambda: self._run_thread(self._run_camera_add)).pack(anchor="w", pady=4)
     def _run_register(self):
         path = self.reg_path.get().strip()
@@ -69,30 +74,42 @@ class DeviceTabsMixin:
         records = self._load_excel_safe(load_excel_records, path)
         if records is None: return
 
+        default_supplier = self._device_supplier()
+
         def fn(rec):
             dev_id = rec.get("id", "")
             sim = str(rec.get("sim", "")).strip()
+            # a device_supplier column in the sheet overrides the dropdown
+            supplier = str(rec.get("device_supplier")
+                           or rec.get("devicesupplier") or "").strip() or default_supplier
             payload = {"id": dev_id, "imei": dev_id,
                        "deviceType": str(rec.get("device_type") or "FMB920").strip(),
-                       "deviceSupplier": "CLIENT", "sim": sim, "mobile": sim,
+                       "deviceSupplier": supplier, "sim": sim, "mobile": sim,
                        "serialNumber": str(rec.get("serial_number", "")).strip()}
             payload = {k: v for k, v in payload.items() if v not in (None, "", "None")}
             r = session.post(f"{API_BASE}/api/v1/devices/", json=payload,
                               headers=api_headers(self.token), timeout=30)
-            return (dev_id, sim), r
-        self._loop(records, "Device Register", fn, ["ID", "SIM"])
+            return (dev_id, sim, supplier), r
+        self._loop(records, "Device Register", fn, ["ID", "SIM", "Supplier"])
+
+    def _device_supplier(self):
+        """Selected device supplier; CLIENT when the box is left empty."""
+        return (self.dev_supplier.get().strip() or "CLIENT") \
+            if hasattr(self, "dev_supplier") else "CLIENT"
     def _run_camera_add(self):
         imeis = self._get_ids(self.cam_src)
         if not imeis: return
         dtype = self.cam_type.get().strip()
 
+        supplier = self._device_supplier()
+
         def fn(imei):
             payload = {"id": int(imei), "imei": int(imei),
-                       "deviceType": dtype, "deviceSupplier": "CLIENT"}
+                       "deviceType": dtype, "deviceSupplier": supplier}
             r = session.post(f"{API_BASE}/api/v1/devices/", json=payload,
                               headers=api_headers(self.token), timeout=30)
-            return (imei, dtype), r
-        self._loop(imeis, "Camera Device Add", fn, ["IMEI", "Type"])
+            return (imei, dtype, supplier), r
+        self._loop(imeis, "Camera Device Add", fn, ["IMEI", "Type", "Supplier"])
     def _tab_sim_inventory(self):
         tab = self._scrollable_tab("SIM Inventory", padding=8)
         row = ttk.Frame(tab); row.pack(fill="x", pady=2)

@@ -133,3 +133,27 @@ class TestStepsAndAccess:
         from fleetx_toolkit.access_control import allowed_tabs_for
         assert "Bulk Onboard" in CONTROLLABLE_TABS
         assert "Bulk Onboard" in allowed_tabs_for("saket.verma@fleetx.io")
+
+
+class TestDeviceSupplier:
+    """v3.16: device supplier is selectable; CLIENT remains the default."""
+
+    def _row(self):
+        rows, _ = L.parse_onboard_paste("862798051206510,2793621,17809", DEFAULTS)
+        return rows[0]
+
+    def test_defaults_to_client(self):
+        b = L.build_onboard_device(self._row())
+        assert b["deviceSupplier"] == "CLIENT"
+
+    def test_defaults_to_client_when_blank(self):
+        b = L.build_onboard_device(self._row(), {"deviceSupplier": "   "})
+        assert b["deviceSupplier"] == "CLIENT"
+
+    def test_uses_selected_supplier(self):
+        b = L.build_onboard_device(self._row(), {"deviceSupplier": "TELTONIKA"})
+        assert b["deviceSupplier"] == "TELTONIKA"
+
+    def test_supplier_list_has_client_first(self):
+        from fleetx_toolkit.config import DEVICE_SUPPLIERS
+        assert DEVICE_SUPPLIERS[0] == "CLIENT"

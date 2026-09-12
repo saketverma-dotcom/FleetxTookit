@@ -8,7 +8,8 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from ..config import (API_BASE, ASSET_ATTACH_TYPE, ASSET_ATTACH_URL,
-                      ASSET_ACCOUNT_URL, ASSET_SUPPLIERS, LOGS_DIR)
+                      ASSET_ACCOUNT_URL, ASSET_SUPPLIERS, DEVICE_SUPPLIERS,
+                      LOGS_DIR)
 from ..api_client import api_headers
 from ..http import session
 from ..io_utils import load_excel_records
@@ -48,8 +49,12 @@ class BulkOnboardTabMixin:
         ttk.Combobox(g1, textvariable=self.bo_device_type, width=20,
                      values=["LCD40AI-2CH", "LCD40", "LCD603", "FMB920",
                              "Cello-CANiQ 2G K-Line"]).pack(side="left", padx=4)
-        ttk.Label(g1, text="accountId is required on every row (no default)",
-                  foreground="#c62828").pack(side="left", padx=(14, 0))
+        ttk.Label(g1, text="Device Supplier:").pack(side="left", padx=(12, 0))
+        self.bo_device_supplier = tk.StringVar(value="CLIENT")
+        ttk.Combobox(g1, textvariable=self.bo_device_supplier, width=12,
+                     values=DEVICE_SUPPLIERS).pack(side="left", padx=4)
+        ttk.Label(g1, text="accountId required on every row",
+                  foreground="#c62828").pack(side="left", padx=(12, 0))
 
         g2 = ttk.Frame(d); g2.pack(fill="x", pady=2)
         ttk.Label(g2, text="Asset Model:").pack(side="left")
@@ -103,6 +108,7 @@ class BulkOnboardTabMixin:
 
     def _bo_defaults(self):
         return {"deviceType": self.bo_device_type.get(),
+                "deviceSupplier": self.bo_device_supplier.get(),
                 "assetModel": self.bo_asset_model.get(),
                 "assetType": self.bo_asset_type.get(),
                 "assetSupplier": self.bo_supplier.get(),
@@ -156,7 +162,7 @@ class BulkOnboardTabMixin:
 
         def device_add():
             return session.post(f"{API_BASE}/api/v1/devices/",
-                                json=L.build_onboard_device(row),
+                                json=L.build_onboard_device(row, self._bo_defaults()),
                                 headers=api_headers(self.token), timeout=30)
 
         def asset_add():
