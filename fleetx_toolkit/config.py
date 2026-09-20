@@ -19,7 +19,7 @@ DELAY_MS    = 1250
 TOKEN_PARAM = "udbhav"
 MOBILE_PARAM = "5754236272120"
 
-APP_VERSION = "3.16"
+APP_VERSION = "3.17"
 
 CRED_FILE     = os.path.join(os.path.expanduser("~"), ".fleetx_toolkit_creds.json")
 SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".fleetx_toolkit_settings.json")
@@ -91,6 +91,11 @@ _SIM_NAME_TO_ID   = {v: k for k, v in SEMYSMS_SIMS.items()}
 # Messaging can now use all 6 SIMs (previously limited to the two Pulse SIMs).
 MESSAGING_SIMS = dict(SEMYSMS_SIMS)
 MESSAGING_SIM_NAMES = list(MESSAGING_SIMS.values())
+
+def sim_name_for_id(device_id):
+    """Device id -> friendly SIM name, or "" if unknown."""
+    return SEMYSMS_SIMS.get(str(device_id or "").strip(), "")
+
 
 def sim_id_for_name(name):
     """Friendly SIM name -> device id, or '' if unknown.
