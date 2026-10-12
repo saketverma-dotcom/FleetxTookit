@@ -19,7 +19,7 @@ DELAY_MS    = 1250
 TOKEN_PARAM = "udbhav"
 MOBILE_PARAM = "5754236272120"
 
-APP_VERSION = "3.18"
+APP_VERSION = "3.18.1"
 
 CRED_FILE     = os.path.join(os.path.expanduser("~"), ".fleetx_toolkit_creds.json")
 SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".fleetx_toolkit_settings.json")
@@ -34,7 +34,7 @@ CONTROLLABLE_TABS = [
     "Device Add", "SIM Inventory", "SIM Update", "Vehicle-Device Map",
     "Send Command", "Sequential 2-Phase", "SensorType", "Assets",
     "Tickets", "SMS Command", "Messaging", "Asset Assign/Attach",
-    "Bulk Onboard",
+    "Bulk Onboard", "Ticket Comments",
 ]
 
 # Access file / logs sit NEXT TO the exe (or the entry script in dev mode).

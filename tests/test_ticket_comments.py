@@ -97,8 +97,19 @@ class TestExcelRows:
         assert rows == [{"ticket_id": "5", "comment": "note", "assignee": "7"}]
 
 
-class TestAdminOnly:
-    def test_tab_is_not_grantable(self):
-        """Hard-locked to ADMIN_EMAILS — must NOT be in the access grid."""
+class TestAccess:
+    def test_tab_appears_in_access_grid(self):
+        """Grantable from User Access (Admin), like the other controllable tabs."""
         from fleetx_toolkit.config import CONTROLLABLE_TABS
-        assert "Ticket Comments" not in CONTROLLABLE_TABS
+        assert "Ticket Comments" in CONTROLLABLE_TABS
+
+    def test_admin_gets_it_automatically(self):
+        from fleetx_toolkit.access_control import allowed_tabs_for
+        assert "Ticket Comments" in allowed_tabs_for("saket.verma@fleetx.io")
+
+    def test_non_admin_needs_an_explicit_grant(self):
+        from fleetx_toolkit import access_control as ac
+        ac.set_snapshot({"komal@fleetx.io": ["Tickets"]})
+        assert "Ticket Comments" not in ac.allowed_tabs_for("komal@fleetx.io")
+        ac.set_snapshot({"komal@fleetx.io": ["Tickets", "Ticket Comments"]})
+        assert "Ticket Comments" in ac.allowed_tabs_for("komal@fleetx.io")

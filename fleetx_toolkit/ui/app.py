@@ -565,6 +565,7 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
             "Tickets":            self._tab_tickets,
             "Asset Assign/Attach": self._tab_asset_assign,
             "Bulk Onboard":       self._tab_bulk_onboard,
+            "Ticket Comments":    self._tab_ticket_comments,
         }
         for tab_name in CONTROLLABLE_TABS:
             if tab_name in allowed and tab_name in tab_builders:
@@ -581,10 +582,8 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         # Settings tab — available to everyone
         self._tab_settings()
 
-        # Admin-only tabs. These are NOT in CONTROLLABLE_TABS — they cannot be
-        # granted from the access grid, only held by an ADMIN_EMAILS account.
+        # Admin-only access-control panel (always last, admins only)
         if self.is_admin_user:
-            self._tab_ticket_comments()
             self._tab_user_access()
 
         if self.nb.index("end") == 0:
