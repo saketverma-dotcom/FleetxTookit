@@ -285,3 +285,88 @@ def build_onboard_asset(row, defaults):
             "type": _clean(defaults.get("assetType")),
             "status": "ACTIVE",
             "issuedToUserId": int(_clean(defaults.get("issuedToUserId")) or 0)}
+
+
+# ─────────────── Bulk ticket comments + reassignment (v3.18) ───────────────
+
+def comment_to_html(text):
+    """The comment field is HTML. A plain-text box would lose its line breaks,
+    so wrap each non-empty line in <p>…</p>. Text that already looks like HTML
+    is passed through untouched."""
+    s = (text or "").strip()
+    if not s:
+        return ""
+    if s.startswith("<") and ">" in s:
+        return s                      # already HTML — don't double-wrap
+    out = []
+    for line in s.splitlines():
+        line = line.strip()
+        if line:
+            out.append("<p>" + _html_escape(line) + "</p>")
+    return "\n".join(out) + "\n"
+
+
+def _html_escape(s):
+    return (str(s).replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;"))
+
+
+def build_comment_body(ticket_id, html, event_time):
+    """Body for POST /api/v1/internal/comment/ — mirrors the browser request."""
+    return {"title": "", "internal": True,
+            "commentableType": "INTERNAL_ISSUE",
+            "commentableId": int(ticket_id),
+            "comment": html,
+            "eventTime": event_time,
+            "commentImages": []}
+
+
+def build_reassign_body(ticket_id, assignee_id):
+    """Body for PUT /api/v1/internal/issue/change-assignment."""
+    return {"id": int(ticket_id), "assignedToId": int(assignee_id)}
+
+
+def parse_ticket_ids(text):
+    """Ticket ids from a pasted block — commas, spaces or newlines.
+    Returns (ids, errors); duplicates are collapsed, order preserved."""
+    raw = str(text or "").replace(",", "\n").replace(" ", "\n")
+    ids, errors, seen = [], [], set()
+    for tok in raw.splitlines():
+        t = tok.strip()
+        if not t:
+            continue
+        if not t.isdigit():
+            errors.append(f"'{t}' is not a numeric ticket id.")
+            continue
+        if t not in seen:
+            seen.add(t)
+            ids.append(t)
+    return ids, errors
+
+
+def parse_comment_records(records, default_assignee=""):
+    """Excel rows: ticketId | comment | assignTo (assignTo optional).
+    Returns (rows, errors) where each row is {ticket_id, comment, assignee}."""
+    rows, errors = [], []
+    for i, rec in enumerate(records or [], start=2):
+        norm = {}
+        for k, v in (rec or {}).items():
+            norm[str(k or "").strip().lower().replace("_", "").replace(" ", "")] = v
+        tid = _clean(norm.get("ticketid") or norm.get("id") or norm.get("issueid"))
+        cmt = _clean(norm.get("comment") or norm.get("remark") or norm.get("note"))
+        asg = _clean(norm.get("assignto") or norm.get("assigneeid")
+                     or norm.get("assignedtoid")) or _clean(default_assignee)
+        if not tid:
+            errors.append(f"Row {i}: missing ticketId.")
+            continue
+        if not tid.isdigit():
+            errors.append(f"Row {i}: ticketId '{tid}' must be numeric.")
+            continue
+        if not cmt:
+            errors.append(f"Row {i}: missing comment.")
+            continue
+        if asg and not str(asg).isdigit():
+            errors.append(f"Row {i}: assignTo '{asg}' must be a numeric user id.")
+            continue
+        rows.append({"ticket_id": tid, "comment": cmt, "assignee": asg})
+    return rows, errors

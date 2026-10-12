@@ -37,12 +37,13 @@ from .tabs_messaging import MessagingTabMixin
 from .tabs_sms_auth import SmsAuthMixin
 from .tabs_asset_assign import AssetAssignTabMixin
 from .tabs_bulk_onboard import BulkOnboardTabMixin
+from .tabs_ticket_comments import TicketCommentsTabMixin
 
 
 class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
                     SmsTabMixin, MessagingTabMixin, SmsAuthMixin,
                     AssetAssignTabMixin, BulkOnboardTabMixin,
-                    AdminTabsMixin, tk.Tk):
+                    TicketCommentsTabMixin, AdminTabsMixin, tk.Tk):
     """Main window. Core plumbing lives here (login, run loop, settings);
     tab UIs come from the mixins."""
 
@@ -580,8 +581,10 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         # Settings tab — available to everyone
         self._tab_settings()
 
-        # Admin-only access-control panel (always last, admins only)
+        # Admin-only tabs. These are NOT in CONTROLLABLE_TABS — they cannot be
+        # granted from the access grid, only held by an ADMIN_EMAILS account.
         if self.is_admin_user:
+            self._tab_ticket_comments()
             self._tab_user_access()
 
         if self.nb.index("end") == 0:
