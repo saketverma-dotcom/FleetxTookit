@@ -370,3 +370,37 @@ def parse_comment_records(records, default_assignee=""):
             continue
         rows.append({"ticket_id": tid, "comment": cmt, "assignee": asg})
     return rows, errors
+
+
+# ─────────────── SensorType update: read-modify-write (v3.19) ───────────────
+#
+# PATCH /api/v1/vehicles/{id} expects the FULL vehicle object. Sending only
+# {"id": …, "sensorType": …} is rejected with 403, so we GET the vehicle,
+# change one field, and PATCH the whole object back. This also guarantees we
+# never blank a field the server would otherwise treat as cleared.
+
+def apply_sensor_type(vehicle, sensor_type):
+    """Return (new_vehicle, previous_sensor_type).
+
+    Only `sensorType` is touched; every other field is passed through exactly
+    as the server returned it.
+    """
+    if not isinstance(vehicle, dict):
+        raise ValueError("vehicle payload was not a JSON object")
+    prev = vehicle.get("sensorType")
+    out = dict(vehicle)                 # shallow copy is enough: we replace a scalar
+    out["sensorType"] = sensor_type
+    return out, prev
+
+
+def sensor_update_needed(vehicle, sensor_type):
+    """True when the vehicle isn't already on this sensor type."""
+    return (vehicle or {}).get("sensorType") != sensor_type
+
+
+def vehicle_label(vehicle):
+    """Readable identity for logs: plate / name, falling back to the id."""
+    v = vehicle or {}
+    return (str(v.get("licensePlate") or "").strip()
+            or str(v.get("name") or "").strip()
+            or str(v.get("id") or "?"))

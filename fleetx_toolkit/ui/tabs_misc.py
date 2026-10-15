@@ -20,6 +20,7 @@ from ..config import (ACCESS_FILE, ACCESS_URL, ADMIN_EMAILS, ALLOWED_DOMAIN,
                       CLIENT_ID, CONTROLLABLE_TABS, DELAY_MS, LOGIN_URL,
                       LOGS_DIR, MOBILE_PARAM, SENSOR_PRESETS, SIM_PROVIDERS,
                       TOKEN_PARAM, load_settings, save_settings)
+from .. import logic as L
 from ..io_utils import (load_excel_column, load_excel_records, parse_curl_command,
                         parse_pasted_ids, parse_pasted_pairs, save_result_log)
 from ..storage import (clear_credentials, load_commands, load_credentials,
@@ -42,6 +43,12 @@ class MiscTabsMixin:
         self.sensor_combo.pack(side="left", padx=6)
         ttk.Button(f, text="+ Save to shared list",
                    command=self._save_sensor_type).pack(side="left", padx=4)
+        self.sens_skip_same = tk.BooleanVar(value=True)
+        ttk.Checkbutton(tab, text="Skip vehicles already on this sensor type",
+                        variable=self.sens_skip_same).pack(anchor="w", pady=(4, 0))
+        ttk.Label(tab, text="Each vehicle is fetched, only sensorType is changed, "
+                            "then the full object is saved back.",
+                  foreground="gray").pack(anchor="w")
         ttk.Label(tab, text="(editable — type a custom sensorType, then '+ Save' to share it with the team)"
                             "  |  Input = Vehicle IDs",
                   foreground="gray").pack(anchor="w", pady=(2, 0))
@@ -80,17 +87,51 @@ class MiscTabsMixin:
         threading.Thread(target=worker, daemon=True).start()
 
     def _run_sensor(self):
+        """Read-modify-write.
+
+        PATCH /vehicles/{id} expects the FULL vehicle object — the old code sent
+        only {"id","sensorType"} and the server answered 403. We now GET each
+        vehicle, change just sensorType, and PATCH the whole object back, so
+        nothing else on the vehicle is altered.
+        """
         vids = self._get_ids(self.sens_src)
-        if not vids: return
+        if not vids:
+            return
         stype = self.sensor_var.get().strip()
+        if not stype:
+            self._ui_error("SensorType", "Choose or type a sensor type first.")
+            return
+        skip_same = bool(getattr(self, "sens_skip_same", None)
+                         and self.sens_skip_same.get())
 
         def fn(vid):
-            r = session.patch(f"{API_BASE}/api/v1/vehicles/{vid}",
-                               json={"id": int(vid), "sensorType": stype},
-                               headers=api_headers(self.token, content_type="application/json"),
-                               timeout=30)
-            return (vid, stype), r
-        self._loop(vids, "SensorType Update", fn, ["Vehicle ID", "Sensor Type"])
+            hdr = api_headers(self.token, content_type="application/json")
+            # 1) read the current vehicle
+            g = session.get(f"{API_BASE}/api/v1/vehicles/{vid}",
+                            headers=api_headers(self.token), timeout=30)
+            if not (200 <= g.status_code < 300):
+                return (vid, "", stype, "GET failed"), g
+            try:
+                veh = g.json()
+            except Exception:
+                g.status_code = 422
+                return (vid, "", stype, "GET returned non-JSON"), g
+
+            label = L.vehicle_label(veh)
+            if skip_same and not L.sensor_update_needed(veh, stype):
+                class _Skip:            # reported as success, no write performed
+                    status_code = 200
+                    text = '{"skipped":"already set"}'
+                return (vid, label, stype, "already set — skipped"), _Skip()
+
+            # 2) change one field  3) write the whole object back
+            body, prev = L.apply_sensor_type(veh, stype)
+            p = session.patch(f"{API_BASE}/api/v1/vehicles/{vid}",
+                              json=body, headers=hdr, timeout=30)
+            return (vid, label, f"{prev or '(none)'} → {stype}", ""), p
+
+        self._loop(vids, "SensorType Update", fn,
+                   ["Vehicle ID", "Vehicle", "Sensor Type", "Note"])
     def _tab_assets(self):
         tab = self._scrollable_tab("Assets", padding=8)
 
