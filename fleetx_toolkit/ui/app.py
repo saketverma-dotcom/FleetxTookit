@@ -115,7 +115,11 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         for child in w.winfo_children():
             try:
                 if isinstance(child, _tk.Text):
-                    kind = "log" if getattr(child, "_fx_role", "") == "log" else "text"
+                    # role decides the surface: a log, a reading pane, or a
+                    # field the user types into
+                    kind = getattr(child, "_fx_role", "") or "text"
+                    if kind not in ("log", "content"):
+                        kind = "text"
                     child.configure(**TH.tk_widget_colors(kind))
                 elif isinstance(child, _tk.Entry):
                     child.configure(**TH.tk_widget_colors("text"))
@@ -182,12 +186,19 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
                 save_settings(s)
             except Exception:
                 pass
-        lbl = getattr(self, "_scale_lbl", None)
-        if lbl is not None:
+        # Several headers can exist (FleetX header + SMS signed-in bar), each
+        # with its own percentage label. Keeping only the newest in
+        # self._scale_lbl left the visible one stuck at its initial value.
+        txt = f"{int(round(self._user_scale * 100))}%"
+        live = []
+        for lbl in getattr(self, "_scale_lbls", []):
             try:
-                lbl.config(text=f"{int(self._user_scale * 100)}%")
+                if lbl.winfo_exists():
+                    lbl.config(text=txt)
+                    live.append(lbl)
             except Exception:
                 pass
+        self._scale_lbls = live
 
     def _scale_step(self, delta):
         self._user_scale = min(1.8, max(0.7, round(self._user_scale + delta, 2)))
@@ -199,9 +210,12 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         sf.pack(side="right", padx=8)
         ttk.Button(sf, text="A−", width=3,
                    command=lambda: self._scale_step(-0.1)).pack(side="left")
-        self._scale_lbl = ttk.Label(sf, width=5, anchor="center",
-                                    text=f"{int(self._user_scale * 100)}%")
+        self._scale_lbl = ttk.Label(sf, width=6, anchor="center",
+                                    text=f"{int(round(self._user_scale * 100))}%")
         self._scale_lbl.pack(side="left")
+        if not hasattr(self, "_scale_lbls"):
+            self._scale_lbls = []
+        self._scale_lbls.append(self._scale_lbl)
         ttk.Button(sf, text="A+", width=3,
                    command=lambda: self._scale_step(0.1)).pack(side="left")
         return sf

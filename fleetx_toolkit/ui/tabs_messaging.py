@@ -152,16 +152,25 @@ class MessagingTabMixin:
                   command=self._msg_send_reply).pack(side="left")
 
         # message area fills whatever height is left above the reply row
+        # The thread is CONTENT, so it sits on the panel colour — darker than
+        # the conversation list beside it. Previously it used the page colour,
+        # which read lighter than the list and made the pane look like an input.
         self.msg_thread_box = tk.Text(right, state="disabled", wrap="word",
-                                      bg=self.C_BG, fg=self.C_TEXT, relief="flat",
-                                      padx=12, pady=8, font=("Segoe UI", 10),
-                                      height=6)
+                                      bg=TH.c("panel", self.C_BG), fg=self.C_TEXT,
+                                      relief="flat", padx=12, pady=8,
+                                      font=("Segoe UI", 10), height=6,
+                                      highlightthickness=0)
+        self.msg_thread_box._fx_role = "content"   # reading surface, not a field
         self.msg_thread_box.pack(fill="both", expand=True)
-        self.msg_thread_box.tag_config("in", foreground=TH.c("info", "#00695c"), spacing3=6)
+        self.msg_thread_box.tag_config("in", foreground=TH.c("info", "#00695c"), spacing3=5)
         self.msg_thread_box.tag_config("out", foreground=TH.c("accent", "#1565c0"),
-                                       justify="right", spacing3=6)
-        self.msg_thread_box.tag_config("meta", foreground=self.C_MUTED,
+                                       justify="right", spacing3=5)
+        # Timestamps are reference, not content: smaller and dimmer so they
+        # stop competing with the message text.
+        self.msg_thread_box.tag_config("meta", foreground=TH.c("ink_faint", "#8795A3"),
                                        font=("Segoe UI", 8))
+        self.msg_thread_box.tag_config("meta_out", foreground=TH.c("ink_faint", "#8795A3"),
+                                       font=("Segoe UI", 8), justify="right")
 
     def _msg_apply_filter(self):
         self._msg_mark_activity()
@@ -521,7 +530,9 @@ class MessagingTabMixin:
         return True
 
     def _msg_render_thread(self):
-        self.msg_thread_box.config(state="normal", **TH.tk_widget_colors("text"))
+        # "content" — the thread is a reading surface on the panel colour,
+        # not an input field (which would use the lighter panel2).
+        self.msg_thread_box.config(state="normal", **TH.tk_widget_colors("content"))
         self.msg_thread_box.delete("1.0", "end")
         phone = self._msg_active_phone
         if not phone:
@@ -531,17 +542,22 @@ class MessagingTabMixin:
         self.msg_thread_lbl.config(text=f"{phone}   ({DS.label_to_name(self.msg_sim.get())})")
         for m in M.conversation(self._msg_threads, phone):
             t = self._msg_short_time(m.get("date", ""))
-            if m["dir"] == "in":
-                line = f"← {m['msg']}"
-                if t:
-                    line += f"   [{t}]"
+            incoming = m["dir"] == "in"
+            # Two tagged runs per message: the text, then the timestamp in the
+            # quieter "meta" tag. Still one insert per run, so the per-poll
+            # cost is unchanged.
+            if incoming:
+                self.msg_thread_box.insert("end", f"← {m['msg']}", "in")
+                meta = f"   {t}" if t else ""
             else:
                 badge = M.STATUS_LABEL.get(m.get("status", M.SENT_PENDING), "")
-                line = f"→ {m['msg']}"
+                self.msg_thread_box.insert("end", f"→ {m['msg']}", "out")
                 meta = "   ".join(x for x in (t, badge) if x)
-                if meta:
-                    line += f"   [{meta}]"
-            self.msg_thread_box.insert("end", line + "\n", m["dir"])
+                meta = f"   {meta}" if meta else ""
+            if meta:
+                self.msg_thread_box.insert("end", meta,
+                                           "meta" if incoming else "meta_out")
+            self.msg_thread_box.insert("end", "\n", m["dir"])
         self.msg_thread_box.see("end")
         self.msg_thread_box.config(state="disabled")
 

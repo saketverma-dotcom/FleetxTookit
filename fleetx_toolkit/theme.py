@@ -223,5 +223,11 @@ def tk_widget_colors(kind="text"):
     if kind == "listbox":
         return dict(edge, background=p["panel2"], foreground=p["ink"],
                     selectbackground=p["sel_bg"], selectforeground=p["ink"])
+    if kind == "content":
+        # A reading surface (the message thread), not a field to type into:
+        # it sits on the panel colour and takes no input border.
+        return {"background": p["panel"], "foreground": p["ink"],
+                "highlightthickness": 0, "borderwidth": 0, "relief": "flat",
+                "selectbackground": p["sel_bg"], "insertbackground": p["ink"]}
     return dict(edge, background=p["panel2"], foreground=p["ink"],
                 insertbackground=p["ink"], selectbackground=p["sel_bg"])

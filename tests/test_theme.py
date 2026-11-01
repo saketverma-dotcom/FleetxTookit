@@ -146,3 +146,42 @@ class TestClassicTkWidgetsAreCovered:
 
     def teardown_method(self):
         TH._active = TH.CLASSIC
+
+
+class TestContentSurface:
+    """v4.0.2: the message thread is a reading surface, not an input.
+
+    It was rendering on panel2 (the input colour), which is LIGHTER than the
+    conversation list beside it — inverting the hierarchy and making the pane
+    look like a text field.
+    """
+
+    def test_content_sits_on_the_panel_colour(self):
+        TH._active = TH.DARK
+        assert TH.tk_widget_colors("content")["background"] == TH.DARK["panel"]
+
+    def test_content_is_darker_than_an_input(self):
+        TH._active = TH.DARK
+        content = TH.tk_widget_colors("content")["background"]
+        field = TH.tk_widget_colors("text")["background"]
+        assert content != field
+        assert _lum(content) < _lum(field)
+
+    def test_content_has_no_input_border(self):
+        """A border would make the reading pane look like a field again."""
+        TH._active = TH.DARK
+        assert TH.tk_widget_colors("content")["highlightthickness"] == 0
+
+    def test_content_text_stays_readable(self):
+        TH._active = TH.DARK
+        kw = TH.tk_widget_colors("content")
+        assert _ratio(kw["foreground"], kw["background"]) >= 7
+
+    def test_timestamps_recede_but_stay_legible(self):
+        """Timestamps use ink_faint — quieter than body text, still >= 4.5:1."""
+        TH._active = TH.DARK
+        assert _ratio(TH.DARK["ink_faint"], TH.DARK["panel"]) >= 4.5
+        assert _lum(TH.DARK["ink_faint"]) < _lum(TH.DARK["ink"])
+
+    def teardown_method(self):
+        TH._active = TH.CLASSIC
