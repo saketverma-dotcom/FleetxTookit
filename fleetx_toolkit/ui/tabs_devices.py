@@ -44,7 +44,7 @@ class DeviceTabsMixin:
         ttk.Button(f1, text="Browse...",
                    command=lambda: self.reg_path.set(
                        filedialog.askopenfilename(filetypes=[("Excel", "*.xlsx")]))).grid(row=0, column=1)
-        ttk.Button(f1, text="▶ Register",
+        ttk.Button(f1, text="▶ Register", style="Accent.TButton",
                    command=lambda: self._run_thread(self._run_register)).grid(row=0, column=2, padx=8)
         ttk.Button(f1, text="⬇ Sample Excel",
                    command=lambda: self._download_sample("device_add", "device_add_sample.xlsx")
@@ -65,7 +65,7 @@ class DeviceTabsMixin:
         ttk.Combobox(row, textvariable=self.dev_supplier, width=14,
                      values=DEVICE_SUPPLIERS).pack(side="left", padx=4)
         self.cam_src = self._input_source(f2, "IMEIs")
-        ttk.Button(f2, text="▶ Add Devices (id = imei)",
+        ttk.Button(f2, text="▶ Add Devices (id = imei)", style="Accent.TButton",
                    command=lambda: self._run_thread(self._run_camera_add)).pack(anchor="w", pady=4)
     def _run_register(self):
         path = self.reg_path.get().strip()
@@ -127,7 +127,7 @@ class DeviceTabsMixin:
         ttk.Label(tab, text="Input = SIM numbers (mobile = SIM if not in Excel 'mobile' column)",
                   foreground="gray").pack(anchor="w")
         self.simi_src = self._input_source(tab, "SIM Numbers")
-        ttk.Button(tab, text="▶ Add SIMs to Inventory",
+        ttk.Button(tab, text="▶ Add SIMs to Inventory", style="Accent.TButton",
                    command=lambda: self._run_thread(self._run_sim_inventory)).pack(anchor="w", pady=4)
     def _run_sim_inventory(self):
         sims = self._get_ids(self.simi_src)
@@ -156,7 +156,7 @@ class DeviceTabsMixin:
         ttk.Button(f, text="⬇ Sample Excel",
                    command=lambda: self._download_sample("sim_update", "sim_update_sample.xlsx")
                    ).pack(side="left", padx=4)
-        ttk.Button(tab, text="▶ Update SIM Mapping",
+        ttk.Button(tab, text="▶ Update SIM Mapping", style="Accent.TButton",
                    command=lambda: self._run_thread(self._run_sim_update)).pack(anchor="w", pady=8)
     def _run_sim_update(self):
         path = self.simu_path.get().strip()
@@ -181,7 +181,7 @@ class DeviceTabsMixin:
                   foreground="gray").pack(anchor="w")
         self.map_src = self._input_source(tab, "Device–Vehicle Pairs")
         mrow = ttk.Frame(tab); mrow.pack(anchor="w", pady=4)
-        ttk.Button(mrow, text="▶ Map Devices to Vehicles",
+        ttk.Button(mrow, text="▶ Map Devices to Vehicles", style="Accent.TButton",
                    command=lambda: self._run_thread(self._run_vehicle_map)).pack(side="left")
         ttk.Button(mrow, text="⬇ Sample Excel",
                    command=lambda: self._download_sample("vehicle_map", "vehicle_map_sample.xlsx")

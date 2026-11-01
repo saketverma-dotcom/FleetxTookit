@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 from .. import sms_auth as A
+from .. import theme as TH
 from ..storage import (load_gh_token, save_gh_token,
                        load_sms_login, save_sms_login, clear_sms_login)
 
@@ -194,9 +195,11 @@ class SmsAuthMixin:
         self._sms_log_box = _st.ScrolledText(self._sms_log_frame, height=7,
                                              state="disabled", font=("Consolas", 9))
         self._sms_log_box.pack(fill="both", expand=True)
-        self._sms_log_box.tag_config("ok", foreground="green")
-        self._sms_log_box.tag_config("err", foreground="red")
-        self._sms_log_box.tag_config("info", foreground="blue")
+        self._sms_log_box._fx_role = "log"
+        self._sms_log_box.configure(**TH.tk_widget_colors("log"))
+        self._sms_log_box.tag_config("ok", foreground=TH.c("ok", "green"))
+        self._sms_log_box.tag_config("err", foreground=TH.c("bad", "red"))
+        self._sms_log_box.tag_config("info", foreground=TH.c("info", "blue"))
         if not getattr(self, "log_box", None):
             self.log_box = self._sms_log_box
         if self._sms_is_admin:

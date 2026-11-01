@@ -9,6 +9,7 @@ from ..config import (MESSAGING_SIMS, MESSAGING_SIM_NAMES, MESSAGING_POLL_SECOND
                       sim_id_for_name)
 from ..storage import load_sms_token
 from .. import messaging as M
+from .. import theme as TH
 from .. import device_status as DS
 
 
@@ -17,14 +18,25 @@ class MessagingTabMixin:
     reply in-thread from that same SIM. Restricted to Airtel Pulse / Voda Pulse."""
 
     # ── Pulse-inspired palette ──
-    C_BG      = "#ffffff"
-    C_SIDEBAR = "#fafafa"
-    C_SEL     = "#e8eaf6"
-    C_DIVIDER = "#eeeeee"
-    C_MUTED   = "#9e9e9e"
-    C_TEXT    = "#212121"
-    C_ACCENT  = "#ff5722"
-    C_UNREAD  = "#2196f3"
+    # Colours come from the active theme rather than literals, so Dark/Classic
+    # switches without touching any of the layout code below. Properties, not
+    # constants, so a theme change is picked up on the next redraw.
+    @property
+    def C_BG(self):      return TH.c("bg", "#ffffff")
+    @property
+    def C_SIDEBAR(self): return TH.c("panel2", "#fafafa")
+    @property
+    def C_SEL(self):     return TH.c("sel_bg", "#e8eaf6")
+    @property
+    def C_DIVIDER(self): return TH.c("line_soft", "#eeeeee")
+    @property
+    def C_MUTED(self):   return TH.c("ink_dim", "#9e9e9e")
+    @property
+    def C_TEXT(self):    return TH.c("ink", "#212121")
+    @property
+    def C_ACCENT(self):  return TH.c("accent", "#ff5722")
+    @property
+    def C_UNREAD(self):  return TH.c("info", "#2196f3")
 
     def _tab_messaging(self):
         tab = tk.Frame(self.nb, bg=self.C_BG)
@@ -145,8 +157,8 @@ class MessagingTabMixin:
                                       padx=12, pady=8, font=("Segoe UI", 10),
                                       height=6)
         self.msg_thread_box.pack(fill="both", expand=True)
-        self.msg_thread_box.tag_config("in", foreground="#00695c", spacing3=6)
-        self.msg_thread_box.tag_config("out", foreground="#1565c0",
+        self.msg_thread_box.tag_config("in", foreground=TH.c("info", "#00695c"), spacing3=6)
+        self.msg_thread_box.tag_config("out", foreground=TH.c("accent", "#1565c0"),
                                        justify="right", spacing3=6)
         self.msg_thread_box.tag_config("meta", foreground=self.C_MUTED,
                                        font=("Segoe UI", 8))
@@ -290,7 +302,7 @@ class MessagingTabMixin:
             self._msg_polling = False
             self.msg_toggle_btn.config(text="▶ Start")
             self.msg_status.config(
-                text="Auto-stopped (idle 2 min) — press Start to resume", fg="#e65100")
+                text="Auto-stopped (idle 2 min) — press Start to resume", fg=TH.c("warn", "#e65100"))
             return
         self._msg_idle_job = self.after(5000, self._msg_schedule_idle_check)
 
@@ -349,7 +361,7 @@ class MessagingTabMixin:
         msg = M.friendly_error(exc)
         if streak >= 5:
             msg += f" ({streak} failed attempts)"
-        self.msg_status.config(text=msg, fg="#e65100")
+        self.msg_status.config(text=msg, fg=TH.c("warn", "#e65100"))
 
     def _msg_clear_error(self):
         """Back to normal once a poll succeeds — the old code left a red error
@@ -509,7 +521,7 @@ class MessagingTabMixin:
         return True
 
     def _msg_render_thread(self):
-        self.msg_thread_box.config(state="normal")
+        self.msg_thread_box.config(state="normal", **TH.tk_widget_colors("text"))
         self.msg_thread_box.delete("1.0", "end")
         phone = self._msg_active_phone
         if not phone:

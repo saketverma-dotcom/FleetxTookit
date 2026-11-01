@@ -4,6 +4,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 import requests
 from ..http import session
+from .. import theme as TH
 
 from ..config import (LOGS_DIR, SEMYSMS_API, SEMYSMS_SIM_NAMES,
                       sim_id_for_name, sim_name_for_id)
@@ -108,7 +109,7 @@ class SmsTabMixin:
         ttk.Label(dl, text="— messages still pending at the timeout are logged as Pending",
                   foreground="gray").pack(side="left", padx=6)
 
-        ttk.Button(tab, text="▶ Send SMS",
+        ttk.Button(tab, text="▶ Send SMS", style="Accent.TButton",
                    command=lambda: self._run_thread(self._run_sms)).pack(anchor="w", pady=8)
 
         # ── live status table (Treeview: native, no per-row widgets to rebuild) ──
@@ -127,9 +128,9 @@ class SmsTabMixin:
         self.sms_tree.configure(yscrollcommand=vs.set)
         self.sms_tree.pack(side="left", fill="both", expand=True)
         vs.pack(side="right", fill="y")
-        self.sms_tree.tag_configure("ok", foreground="#1b7f3b")
-        self.sms_tree.tag_configure("bad", foreground="#c62828")
-        self.sms_tree.tag_configure("wait", foreground="#e65100")
+        self.sms_tree.tag_configure("ok", foreground=TH.c("ok", "#1b7f3b"))
+        self.sms_tree.tag_configure("bad", foreground=TH.c("bad", "#c62828"))
+        self.sms_tree.tag_configure("wait", foreground=TH.c("warn", "#e65100"))
         self.sms_summary = ttk.Label(tab, text="", foreground="gray")
         self.sms_summary.pack(anchor="w")
 

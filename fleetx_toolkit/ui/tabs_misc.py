@@ -53,7 +53,7 @@ class MiscTabsMixin:
                             "  |  Input = Vehicle IDs",
                   foreground="gray").pack(anchor="w", pady=(2, 0))
         self.sens_src = self._input_source(tab, "Vehicle IDs")
-        ttk.Button(tab, text="▶ Update SensorType",
+        ttk.Button(tab, text="▶ Update SensorType", style="Accent.TButton",
                    command=lambda: self._run_thread(self._run_sensor)).pack(anchor="w", pady=4)
     def _sensor_values(self):
         """Built-in presets + team-shared custom types (deduped, order kept)."""
@@ -153,7 +153,7 @@ class MiscTabsMixin:
                      values=ASSET_SUPPLIERS).pack(side="left", padx=4)
 
         self.asset_src = self._input_source(f1, "Asset IDs (= name = productId)")
-        ttk.Button(f1, text="▶ Add Assets",
+        ttk.Button(f1, text="▶ Add Assets", style="Accent.TButton",
                    command=lambda: self._run_thread(self._run_asset_add)).pack(anchor="w", pady=2)
 
         f2 = ttk.LabelFrame(tab, text="Update Asset Supplier (PATCH /assets/update)", padding=6)
@@ -163,7 +163,7 @@ class MiscTabsMixin:
         self.asset_supplier = tk.StringVar(value="HHD")
         ttk.Entry(r2, textvariable=self.asset_supplier, width=14).pack(side="left", padx=4)
         ttk.Label(r2, text="Paste Asset IDs in box above (reuses same input)  →").pack(side="left", padx=8)
-        ttk.Button(r2, text="▶ Update Supplier",
+        ttk.Button(r2, text="▶ Update Supplier", style="Accent.TButton",
                    command=lambda: self._run_thread(self._run_asset_update)).pack(side="left", padx=6)
     def _run_asset_add(self):
         ids = self._get_ids(self.asset_src)
@@ -223,7 +223,7 @@ class MiscTabsMixin:
                         variable=self.tick_split, value="equal").pack(side="left", padx=4)
 
         self.tick_src = self._input_source(tab, "Ticket IDs")
-        ttk.Button(tab, text="▶ Assign Tickets",
+        ttk.Button(tab, text="▶ Assign Tickets", style="Accent.TButton",
                    command=lambda: self._run_thread(self._run_tickets)).pack(anchor="w", pady=4)
     def _render_assignee_grid(self):
         for w in self.pick_frame.winfo_children():

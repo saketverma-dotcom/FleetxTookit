@@ -47,7 +47,7 @@ class CommandTabsMixin:
                    command=self._open_command_manager).grid(row=0, column=2, padx=8)
 
         self.cmd_src = self._input_source(tab, "IMEIs")
-        ttk.Button(tab, text="▶ Send Command to All",
+        ttk.Button(tab, text="▶ Send Command to All", style="Accent.TButton",
                    command=lambda: self._run_thread(self._run_send_command)).pack(anchor="w", pady=4)
     def _selected_command(self, combo):
         idx = combo.current()
@@ -183,7 +183,7 @@ class CommandTabsMixin:
         ttk.Entry(f, textvariable=self.gap_var, width=8).grid(row=2, column=1, sticky="w", padx=4)
 
         self.seq_src = self._input_source(tab, "IMEIs")
-        ttk.Button(tab, text="▶ Run 2-Phase Sequence",
+        ttk.Button(tab, text="▶ Run 2-Phase Sequence", style="Accent.TButton",
                    command=lambda: self._run_thread(self._run_seq)).pack(anchor="w", pady=4)
     def _run_seq(self):
         c1 = self._selected_command(self.p1_pick)

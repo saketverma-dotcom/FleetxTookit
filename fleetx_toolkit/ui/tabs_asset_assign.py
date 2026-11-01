@@ -36,7 +36,7 @@ class AssetAssignTabMixin:
                   foreground="gray").pack(anchor="w", pady=(4, 0))
         self.aa_src = self._input_source(f1, "Asset IDs (+ optional accountId)")
         b1 = ttk.Frame(f1); b1.pack(fill="x")
-        ttk.Button(b1, text="▶ Assign to Account",
+        ttk.Button(b1, text="▶ Assign to Account", style="Accent.TButton",
                    command=lambda: self._run_thread(self._run_asset_account)
                    ).pack(side="left", pady=2)
         ttk.Button(b1, text="Sample Excel",
@@ -58,7 +58,7 @@ class AssetAssignTabMixin:
                   foreground="gray").pack(anchor="w", pady=(4, 0))
         self.at_src = self._input_source(f2, "assetId,vehicleId (+ optional accountId)")
         b2 = ttk.Frame(f2); b2.pack(fill="x")
-        ttk.Button(b2, text="▶ Attach to Vehicle",
+        ttk.Button(b2, text="▶ Attach to Vehicle", style="Accent.TButton",
                    command=lambda: self._run_thread(self._run_asset_attach)
                    ).pack(side="left", pady=2)
         ttk.Button(b2, text="Sample Excel",

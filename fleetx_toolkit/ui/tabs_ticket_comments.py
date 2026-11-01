@@ -91,7 +91,7 @@ class TicketCommentsTabMixin:
         self._tc_toggle_reassign()
 
         b = ttk.Frame(tab); b.pack(fill="x", pady=6)
-        ttk.Button(b, text="▶ Post Comments",
+        ttk.Button(b, text="▶ Post Comments", style="Accent.TButton",
                    command=lambda: self._run_thread(self._run_ticket_comments)
                    ).pack(side="left")
         self.tc_dry = tk.BooleanVar(value=False)

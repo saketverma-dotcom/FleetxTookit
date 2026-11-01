@@ -12,6 +12,7 @@ import requests
 from ..http import session
 
 from .. import access_control, state
+from .. import theme as TH
 from ..access_control import (allowed_tabs_for, fetch_remote_access, is_admin,
                               is_authorized, load_access, push_access_to_gist)
 from ..api_client import api_headers
@@ -57,6 +58,11 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         self.stop_flag = False
         self.is_admin_user = False
         self.commands = load_commands()
+        try:
+            self._ui_theme = str(load_settings().get("ui_theme", "classic")).lower()
+        except Exception:
+            self._ui_theme = "classic"
+        TH.apply_theme(self, self._ui_theme)
         self._init_ui_scale()
         self._build_sms_front()
 
@@ -77,6 +83,47 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
             pass
 
     # ── UI scale: auto DPI factor × user preference ──
+
+    def set_theme(self, name):
+        """Switch palette in place and restyle the live widget tree.
+
+        Nothing is created or destroyed — ttk styles are reapplied and the few
+        classic tk widgets (logs, listboxes) are recoloured by walking the
+        tree. So this cannot cause the rebuild/dead-click/hang failures that
+        custom row drawing did.
+        """
+        self._ui_theme = "dark" if str(name).lower() == "dark" else "classic"
+        TH.apply_theme(self, self._ui_theme)
+        try:
+            s = load_settings(); s["ui_theme"] = self._ui_theme; save_settings(s)
+        except Exception:
+            pass
+        self._recolor_tk_widgets(self)
+        try:
+            self.configure(bg=TH.c("bg", "SystemButtonFace"))
+        except Exception:
+            pass
+
+    def _recolor_tk_widgets(self, w):
+        """ttk styling misses the classic tk widgets, so recolour those."""
+        import tkinter as _tk
+        for child in w.winfo_children():
+            try:
+                if isinstance(child, _tk.Text):
+                    kind = "log" if getattr(child, "_fx_role", "") == "log" else "text"
+                    child.configure(**TH.tk_widget_colors(kind))
+                elif isinstance(child, _tk.Listbox):
+                    child.configure(**TH.tk_widget_colors("listbox"))
+                elif isinstance(child, (_tk.Frame, _tk.LabelFrame)):
+                    child.configure(bg=TH.c("bg", "SystemButtonFace"))
+                elif isinstance(child, _tk.Label):
+                    child.configure(bg=TH.c("bg", "SystemButtonFace"),
+                                    fg=TH.c("ink", "black"))
+                elif isinstance(child, _tk.Canvas):
+                    child.configure(bg=TH.c("bg", "SystemButtonFace"))
+            except Exception:
+                pass
+            self._recolor_tk_widgets(child)
 
     def _init_ui_scale(self):
         """Because we're DPI-aware, Windows no longer enlarges the app — so at
@@ -598,9 +645,11 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         self.log_box = scrolledtext.ScrolledText(logf, height=8, state="disabled",
                                                   font=("Consolas", 9))
         self.log_box.pack(fill="both", expand=True)
-        self.log_box.tag_config("ok", foreground="green")
-        self.log_box.tag_config("err", foreground="red")
-        self.log_box.tag_config("info", foreground="blue")
+        self.log_box._fx_role = "log"
+        self.log_box.configure(**TH.tk_widget_colors("log"))
+        self.log_box.tag_config("ok", foreground=TH.c("ok", "green"))
+        self.log_box.tag_config("err", foreground=TH.c("bad", "red"))
+        self.log_box.tag_config("info", foreground=TH.c("info", "blue"))
         self._log_pane = logf
         self._main_paned.add(logf, weight=1)
 
@@ -1058,6 +1107,19 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         return results, halted
     def _tab_settings(self):
         tab = self._scrollable_tab("⚙ Settings", padding=12)
+
+        ap = ttk.LabelFrame(tab, text="Appearance", padding=10)
+        ap.pack(fill="x", pady=4)
+        tr = ttk.Frame(ap); tr.pack(fill="x", pady=3)
+        ttk.Label(tr, text="Theme:").pack(side="left")
+        self.theme_var = tk.StringVar(value=getattr(self, "_ui_theme", "classic"))
+        ttk.Radiobutton(tr, text="Classic", value="classic", variable=self.theme_var,
+                        command=lambda: self.set_theme("classic")).pack(side="left", padx=(8, 0))
+        ttk.Radiobutton(tr, text="Dark", value="dark", variable=self.theme_var,
+                        command=lambda: self.set_theme("dark")).pack(side="left", padx=8)
+        ttk.Label(ap, text="Applies immediately and is remembered. If a tab looks wrong "
+                           "under Dark, switch back to Classic and tell Saket.",
+                  foreground="gray").pack(anchor="w")
 
         f = ttk.LabelFrame(tab, text="Request behaviour", padding=10)
         f.pack(fill="x", pady=4)

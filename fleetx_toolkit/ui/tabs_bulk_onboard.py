@@ -12,6 +12,7 @@ from ..config import (API_BASE, ASSET_ATTACH_TYPE, ASSET_ATTACH_URL,
                       LOGS_DIR)
 from ..api_client import api_headers
 from ..http import session
+from .. import theme as TH
 from ..io_utils import load_excel_records
 from .. import logic as L
 
@@ -54,7 +55,7 @@ class BulkOnboardTabMixin:
         ttk.Combobox(g1, textvariable=self.bo_device_supplier, width=12,
                      values=DEVICE_SUPPLIERS).pack(side="left", padx=4)
         ttk.Label(g1, text="accountId required on every row",
-                  foreground="#c62828").pack(side="left", padx=(12, 0))
+                  foreground=TH.c("bad", "#c62828")).pack(side="left", padx=(12, 0))
         self.bo_ignore_sheet_type = tk.BooleanVar(value=False)
         ttk.Checkbutton(g1, text="Ignore sheet's Device Type (use the one above)",
                         variable=self.bo_ignore_sheet_type).pack(side="left", padx=(12, 0))
@@ -101,7 +102,7 @@ class BulkOnboardTabMixin:
         self.bo_src = self._input_source(tab, "Onboarding rows")
 
         b = ttk.Frame(tab); b.pack(fill="x", pady=2)
-        ttk.Button(b, text="▶ Run Bulk Onboard",
+        ttk.Button(b, text="▶ Run Bulk Onboard", style="Accent.TButton",
                    command=lambda: self._run_thread(self._run_bulk_onboard)
                    ).pack(side="left")
         ttk.Button(b, text="⬇ Sample Excel",
@@ -198,10 +199,10 @@ class BulkOnboardTabMixin:
         self.bo_tree.configure(yscrollcommand=vs.set)
         self.bo_tree.pack(side="left", fill="both", expand=True)
         vs.pack(side="right", fill="y")
-        self.bo_tree.tag_configure("ok", foreground="#1b7f3b")
-        self.bo_tree.tag_configure("bad", foreground="#c62828")
-        self.bo_tree.tag_configure("wait", foreground="#7a7a7a")
-        self.bo_tree.tag_configure("exists", foreground="#b26a00")
+        self.bo_tree.tag_configure("ok", foreground=TH.c("ok", "#1b7f3b"))
+        self.bo_tree.tag_configure("bad", foreground=TH.c("bad", "#c62828"))
+        self.bo_tree.tag_configure("wait", foreground=TH.c("skip", "#7a7a7a"))
+        self.bo_tree.tag_configure("exists", foreground=TH.c("warn", "#b26a00"))
         self._bo_rows = []        # [{row, statuses, iid, done}]
         self._bo_detached = []
 
@@ -331,7 +332,7 @@ class BulkOnboardTabMixin:
         prev.pack(anchor="w", pady=2)
 
         for _, w in s["warnings"]:
-            ttk.Label(f, text="⚠  " + w, foreground="#c62828",
+            ttk.Label(f, text="⚠  " + w, foreground=TH.c("bad", "#c62828"),
                       wraplength=520, justify="left").pack(anchor="w", pady=1)
 
         ack = tk.BooleanVar(value=not s["needs_ack"])
