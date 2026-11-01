@@ -157,3 +157,107 @@ class TestDeviceSupplier:
     def test_supplier_list_has_client_first(self):
         from fleetx_toolkit.config import DEVICE_SUPPLIERS
         assert DEVICE_SUPPLIERS[0] == "CLIENT"
+
+
+class TestRealWorldSheetHeaders:
+    """v3.19.1: accept the column names people actually use.
+
+    A real sheet looks like:
+      Plate Number | Service | Device Type | IMEI | SIM | ICCID | Vehicle ID | Account
+    "Vehicle ID" contains a space, which the old normaliser (underscores only)
+    failed to match, so every row was rejected for a missing vehicleId.
+    """
+
+    SHEET = [{"Plate Number": "CBN9071", "Service": "2GO LOGISTICS INC.",
+              "Device Type": "2CH LCD40AI", "IMEI": 867191084121291,
+              "SIM": 9494200511, "ICCID": 3.25e14,
+              "Vehicle ID": 3146847, "Account": 17413}]
+
+    def test_spaced_headers_match(self):
+        rows, errs = L.parse_onboard_records(self.SHEET, {"deviceType": "X"})
+        assert not errs and len(rows) == 1
+
+    def test_fields_map_correctly(self):
+        rows, _ = L.parse_onboard_records(self.SHEET, {"deviceType": "X"})
+        r = rows[0]
+        assert r["device_id"] == "867191084121291"     # IMEI
+        assert r["vehicle_id"] == 3146847              # Vehicle ID
+        assert r["account_id"] == "17413"              # Account
+        assert r["sim"] == "9494200511"                # SIM
+
+    def test_extra_columns_ignored(self):
+        """Plate Number / Service / ICCID must not break parsing."""
+        rows, errs = L.parse_onboard_records(self.SHEET, {"deviceType": "X"})
+        assert not errs and rows[0]["serial_number"] == ""
+
+    def test_per_row_accounts_are_kept_apart(self):
+        sheet = self.SHEET + [dict(self.SHEET[0], **{"IMEI": 867191084135200,
+                                                     "Vehicle ID": 3147081,
+                                                     "Account": 18364})]
+        rows, _ = L.parse_onboard_records(sheet, {"deviceType": "X"})
+        assert [r["account_id"] for r in rows] == ["17413", "18364"]
+
+    def test_sheet_device_type_wins_by_default(self):
+        rows, _ = L.parse_onboard_records(self.SHEET, {"deviceType": "LCD40AI-2CH"})
+        assert rows[0]["device_type"] == "2CH LCD40AI"
+
+    def test_sheet_device_type_can_be_ignored(self):
+        """The sheet often carries a human label, not the API's deviceType."""
+        rows, _ = L.parse_onboard_records(
+            self.SHEET, {"deviceType": "LCD40AI-2CH", "ignoreSheetDeviceType": True})
+        assert rows[0]["device_type"] == "LCD40AI-2CH"
+
+
+class TestPreflight:
+    """v3.20: summarise a batch before any write, and require an explicit
+    acknowledgement when it spans several accounts — a wrong accountId is only
+    visible after assets have landed in the wrong customer's fleet."""
+
+    @staticmethod
+    def _row(dev, veh, acc, typ="LCD40AI-2CH"):
+        return {"device_id": dev, "asset_id": dev, "vehicle_id": veh,
+                "account_id": acc, "sim": "", "serial_number": "",
+                "device_type": typ}
+
+    def test_counts_rows_and_writes(self):
+        s = L.preflight_summary([self._row("1", 2, "9"), self._row("3", 4, "9")])
+        assert s["count"] == 2
+        assert s["writes"] == 2 * len(L.ONBOARD_STEPS) == 10
+
+    def test_single_account_needs_no_ack(self):
+        s = L.preflight_summary([self._row("1", 2, "17413"),
+                                 self._row("3", 4, "17413")])
+        assert s["warnings"] == [] and s["needs_ack"] is False
+
+    def test_multiple_accounts_warn_and_require_ack(self):
+        s = L.preflight_summary([self._row("1", 2, "17413"),
+                                 self._row("3", 4, "18364")])
+        assert s["needs_ack"] is True
+        assert any(k == "accounts" for k, _ in s["warnings"])
+
+    def test_account_spread_is_counted(self):
+        rows = ([self._row(str(i), i, "17413") for i in range(6)]
+                + [self._row("x", 99, "18364")])
+        s = L.preflight_summary(rows)
+        assert s["accounts"] == {"17413": 6, "18364": 1}
+
+    def test_duplicate_device_ids_flagged(self):
+        s = L.preflight_summary([self._row("111", 5, "1"), self._row("111", 6, "1")])
+        assert any(k == "duplicate-device" for k, _ in s["warnings"])
+
+    def test_duplicate_vehicle_ids_flagged(self):
+        s = L.preflight_summary([self._row("111", 5, "1"), self._row("222", 5, "1")])
+        assert any(k == "duplicate-vehicle" for k, _ in s["warnings"])
+
+    def test_mixed_device_types_flagged(self):
+        s = L.preflight_summary([self._row("1", 2, "9", "LCD40AI-2CH"),
+                                 self._row("3", 4, "9", "FMB920")])
+        assert any(k == "device-type" for k, _ in s["warnings"])
+
+    def test_preview_is_capped_at_five(self):
+        s = L.preflight_summary([self._row(str(i), i, "9") for i in range(9)])
+        assert len(s["preview"]) == 5 and s["more"] == 4
+
+    def test_empty_batch(self):
+        s = L.preflight_summary([])
+        assert s["count"] == 0 and s["writes"] == 0 and not s["needs_ack"]

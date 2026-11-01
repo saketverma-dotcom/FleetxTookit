@@ -219,7 +219,9 @@ def parse_onboard_records(records, defaults):
     for i, rec in enumerate(records or [], start=2):
         norm = {}
         for k, v in (rec or {}).items():
-            key = str(k or "").strip().lower().replace("_", "")
+            # Real sheets use headers like "Vehicle ID", "Device Type",
+            # "Account" — strip spaces/punctuation so they match.
+            key = "".join(ch for ch in str(k or "").lower() if ch.isalnum())
             norm[key] = v
         row, err = _onboard_row(norm, defaults, f"Row {i}")
         (rows if row else errors).append(row or err)
@@ -233,7 +235,8 @@ def _onboard_row(rec, defaults, where):
     # accountId is REQUIRED per row — deliberately no default fallback, so a
     # missing value stops that row instead of silently using someone else's
     # account.
-    account = _clean(rec.get("accountid") or rec.get("account"))
+    account = _clean(rec.get("accountid") or rec.get("account")
+                     or rec.get("accountno") or rec.get("acc"))
     if not device:
         return None, f"{where}: missing deviceId."
     if not device.isdigit():
@@ -250,9 +253,13 @@ def _onboard_row(rec, defaults, where):
         "vehicle_id": int(vehicle),
         "account_id": account,
         "sim": _clean(rec.get("sim")),
-        "serial_number": _clean(rec.get("serialnumber") or rec.get("serial")),
+        "serial_number": _clean(rec.get("serialnumber") or rec.get("serial")
+                                or rec.get("sn")),
         # per-row value wins; otherwise the run-level default
-        "device_type": _clean(rec.get("devicetype")) or _clean(defaults.get("deviceType")),
+        "device_type": (_clean(defaults.get("deviceType"))
+                        if defaults.get("ignoreSheetDeviceType") else
+                        (_clean(rec.get("devicetype")) or _clean(rec.get("type"))
+                         or _clean(defaults.get("deviceType")))),
     }, None
 
 
@@ -404,3 +411,64 @@ def vehicle_label(vehicle):
     return (str(v.get("licensePlate") or "").strip()
             or str(v.get("name") or "").strip()
             or str(v.get("id") or "?"))
+
+
+# ─────────────── Pre-flight analysis for bulk runs (v3.20) ───────────────
+#
+# A bulk onboard writes five times per row. A wrong accountId is invisible
+# until assets land in the wrong customer's fleet, and undoing that is manual.
+# So before writing anything we summarise what is about to happen and surface
+# the things worth a second look.
+
+def preflight_summary(rows, defaults=None):
+    """Describe a pending Bulk Onboard run.
+
+    Returns a dict with counts, the account spread, and a list of warnings.
+    Pure — no Tk, no network, so it is fully testable.
+    """
+    defaults = defaults or {}
+    rows = rows or []
+    accounts, devices, vehicles = {}, {}, {}
+    types = {}
+    for r in rows:
+        accounts[r["account_id"]] = accounts.get(r["account_id"], 0) + 1
+        devices[r["device_id"]] = devices.get(r["device_id"], 0) + 1
+        vehicles[r["vehicle_id"]] = vehicles.get(r["vehicle_id"], 0) + 1
+        t = r.get("device_type") or "(unset)"
+        types[t] = types.get(t, 0) + 1
+
+    warnings = []
+    if len(accounts) > 1:
+        spread = " · ".join(f"{a} ({n})" for a, n in sorted(accounts.items()))
+        warnings.append(("accounts",
+                         f"{len(accounts)} different accountIds in one batch: {spread}"))
+    dup_dev = sorted(d for d, n in devices.items() if n > 1)
+    if dup_dev:
+        warnings.append(("duplicate-device",
+                         f"{len(dup_dev)} device id(s) appear more than once: "
+                         + ", ".join(dup_dev[:5]) + ("…" if len(dup_dev) > 5 else "")))
+    dup_veh = sorted(str(v) for v, n in vehicles.items() if n > 1)
+    if dup_veh:
+        warnings.append(("duplicate-vehicle",
+                         f"{len(dup_veh)} vehicle id(s) appear more than once: "
+                         + ", ".join(dup_veh[:5]) + ("…" if len(dup_veh) > 5 else "")))
+    if len(types) > 1:
+        warnings.append(("device-type",
+                         "mixed device types: "
+                         + " · ".join(f"{t} ({n})" for t, n in sorted(types.items()))))
+    if "(unset)" in types:
+        warnings.append(("device-type-missing", "some rows have no device type"))
+
+    return {
+        "count": len(rows),
+        "writes": len(rows) * len(ONBOARD_STEPS),
+        "accounts": dict(sorted(accounts.items())),
+        "device_types": dict(sorted(types.items())),
+        "warnings": warnings,
+        "preview": [
+            f"{r['device_id']} → vehicle {r['vehicle_id']}  (account {r['account_id']})"
+            for r in rows[:5]
+        ],
+        "more": max(0, len(rows) - 5),
+        "needs_ack": any(k == "accounts" for k, _ in warnings),
+    }

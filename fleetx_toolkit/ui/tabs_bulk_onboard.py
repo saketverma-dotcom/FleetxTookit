@@ -55,6 +55,9 @@ class BulkOnboardTabMixin:
                      values=DEVICE_SUPPLIERS).pack(side="left", padx=4)
         ttk.Label(g1, text="accountId required on every row",
                   foreground="#c62828").pack(side="left", padx=(12, 0))
+        self.bo_ignore_sheet_type = tk.BooleanVar(value=False)
+        ttk.Checkbutton(g1, text="Ignore sheet's Device Type (use the one above)",
+                        variable=self.bo_ignore_sheet_type).pack(side="left", padx=(12, 0))
 
         g2 = ttk.Frame(d); g2.pack(fill="x", pady=2)
         ttk.Label(g2, text="Asset Model:").pack(side="left")
@@ -80,6 +83,9 @@ class BulkOnboardTabMixin:
         ttk.Label(tab, text="Excel columns:  deviceId | vehicleId | accountId | sim | "
                             "serialNumber | deviceType   (blank cells are fine)",
                   foreground="gray").pack(anchor="w")
+        ttk.Label(tab, text="Header names are matched loosely — IMEI, Vehicle ID, Account, "
+                            "SIM, Device Type all work. Extra columns are ignored.",
+                  foreground="gray").pack(anchor="w")
 
         # ── pacing ──
         p = ttk.Frame(tab); p.pack(fill="x", pady=(6, 0))
@@ -104,10 +110,15 @@ class BulkOnboardTabMixin:
         ttk.Checkbutton(b, text="Dry run (validate only, no API calls)",
                         variable=self.bo_dry).pack(side="left", padx=12)
 
+        # Controls above are packed first so the grid expands into what is left
+        # and can never push the button row off-screen at high DPI.
+        self._bo_build_grid(tab)
+
     # ── input ──
 
     def _bo_defaults(self):
-        return {"deviceType": self.bo_device_type.get(),
+        return {"ignoreSheetDeviceType": bool(self.bo_ignore_sheet_type.get()),
+                "deviceType": self.bo_device_type.get(),
                 "deviceSupplier": self.bo_device_supplier.get(),
                 "assetModel": self.bo_asset_model.get(),
                 "assetType": self.bo_asset_type.get(),
@@ -153,6 +164,207 @@ class BulkOnboardTabMixin:
                 f"Continue with the {len(rows)} valid row(s)?"):
             return None
         return rows
+
+
+
+    # ─────────── live run grid (v3.20) ───────────
+    # ttk.Treeview: rows are inserted once and updated with item() in place.
+    # No widget is created or destroyed per refresh, so the rebuild/dead-click/
+    # hang problems that custom row widgets caused cannot occur here.
+
+    def _bo_build_grid(self, parent):
+        bar = ttk.Frame(parent); bar.pack(fill="x", pady=(6, 2))
+        self.bo_counts = ttk.Label(bar, text="", foreground="gray")
+        self.bo_counts.pack(side="left")
+        self.bo_filter = tk.StringVar(value="all")
+        for key, label in (("all", "All"), ("failed", "Failed"), ("pending", "Pending")):
+            ttk.Radiobutton(bar, text=label, value=key, variable=self.bo_filter,
+                            command=self._bo_apply_filter).pack(side="left", padx=(10, 0))
+        self.bo_retry_btn = ttk.Button(bar, text="↻ Retry failed",
+                                       command=lambda: self._run_thread(self._bo_retry_failed))
+        self.bo_retry_btn.pack(side="right")
+        self.bo_retry_btn.state(["disabled"])
+        ttk.Button(bar, text="Copy failed IDs",
+                   command=self._bo_copy_failed).pack(side="right", padx=6)
+
+        cols = ("device", "vehicle", "account") + tuple(
+            s.replace("Asset→", "A→") for s in L.ONBOARD_STEPS)
+        self.bo_tree = ttk.Treeview(parent, columns=cols, show="headings", height=11)
+        widths = {"device": 140, "vehicle": 90, "account": 80}
+        for c in cols:
+            self.bo_tree.heading(c, text=c if c in widths else c)
+            self.bo_tree.column(c, width=widths.get(c, 105), anchor="w")
+        vs = ttk.Scrollbar(parent, orient="vertical", command=self.bo_tree.yview)
+        self.bo_tree.configure(yscrollcommand=vs.set)
+        self.bo_tree.pack(side="left", fill="both", expand=True)
+        vs.pack(side="right", fill="y")
+        self.bo_tree.tag_configure("ok", foreground="#1b7f3b")
+        self.bo_tree.tag_configure("bad", foreground="#c62828")
+        self.bo_tree.tag_configure("wait", foreground="#7a7a7a")
+        self.bo_tree.tag_configure("exists", foreground="#b26a00")
+        self._bo_rows = []        # [{row, statuses, iid, done}]
+        self._bo_detached = []
+
+    def _bo_grid_reset(self, rows):
+        for i in self.bo_tree.get_children():
+            self.bo_tree.delete(i)
+        self._bo_detached = []
+        self._bo_rows = []
+        for n, r in enumerate(rows, start=1):
+            iid = f"r{n}"
+            self._bo_rows.append({"row": r, "statuses": {}, "iid": iid, "done": False})
+            self.bo_tree.insert("", "end", iid=iid,
+                                values=(r["device_id"], r["vehicle_id"], r["account_id"])
+                                       + ("Queued",) * len(L.ONBOARD_STEPS),
+                                tags=("wait",))
+        self._bo_update_counts()
+
+    def _bo_grid_update(self, idx):
+        """Rewrite ONE row's cells in place."""
+        rec = self._bo_rows[idx]
+        r, st = rec["row"], rec["statuses"]
+        cells = []
+        worst = "wait"
+        for s in L.ONBOARD_STEPS:
+            v = st.get(s)
+            if v is None:
+                cells.append("")
+                continue
+            state = v[0]
+            cells.append(f"{state} {v[1]}".strip())
+            if state in ("FAILED", "ERROR"):
+                worst = "bad"
+            elif state == "EXISTS" and worst != "bad":
+                worst = "exists"
+            elif state == "SUCCESS" and worst in ("wait",):
+                worst = "ok"
+        try:
+            self.bo_tree.item(rec["iid"],
+                              values=(r["device_id"], r["vehicle_id"], r["account_id"])
+                                     + tuple(cells),
+                              tags=(worst,))
+        except Exception:
+            pass
+        self._bo_update_counts()
+
+    def _bo_row_failed(self, rec):
+        return any(v[0] in ("FAILED", "ERROR") for v in rec["statuses"].values())
+
+    def _bo_update_counts(self):
+        tot = len(self._bo_rows)
+        bad = sum(1 for r in self._bo_rows if self._bo_row_failed(r))
+        done = sum(1 for r in self._bo_rows if r["done"])
+        self.bo_counts.config(
+            text=f"{done - bad} ok · {bad} failed · {max(0, tot - done)} pending   "
+                 f"({tot} rows)")
+        try:
+            self.bo_retry_btn.state(["!disabled"] if bad else ["disabled"])
+        except Exception:
+            pass
+
+    def _bo_apply_filter(self):
+        """Detach/reattach ids — no widgets are created or destroyed."""
+        want = self.bo_filter.get()
+        for rec in self._bo_rows:
+            failed = self._bo_row_failed(rec)
+            show = (want == "all"
+                    or (want == "failed" and failed)
+                    or (want == "pending" and not rec["done"]))
+            attached = rec["iid"] in self.bo_tree.get_children()
+            if show and not attached:
+                self.bo_tree.reattach(rec["iid"], "", "end")
+            elif not show and attached:
+                self.bo_tree.detach(rec["iid"])
+
+    def _bo_copy_failed(self):
+        ids = [r["row"]["device_id"] for r in self._bo_rows if self._bo_row_failed(r)]
+        if not ids:
+            return
+        self.clipboard_clear(); self.clipboard_append("\n".join(ids))
+        self.log(f"Copied {len(ids)} failed device id(s) to the clipboard.", "info")
+
+    def _bo_retry_failed(self):
+        idxs = [i for i, r in enumerate(self._bo_rows) if self._bo_row_failed(r)]
+        if not idxs:
+            return
+        self.log(f"── Retrying {len(idxs)} failed row(s) ──", "info")
+        for i in idxs:
+            self._bo_rows[i]["statuses"] = {}
+            self._bo_rows[i]["done"] = False
+            self.after(0, lambda i=i: self._bo_grid_update(i))
+        self._bo_execute(idxs)
+
+    # ─────────── pre-flight confirmation (v3.20) ───────────
+
+    def _bo_preflight(self, rows):
+        """Show what is about to happen and require an explicit tick when the
+        batch spans several accounts. Returns True to proceed."""
+        s = L.preflight_summary(rows, self._bo_defaults())
+        dlg = tk.Toplevel(self)
+        dlg.title("Confirm Bulk Onboard")
+        dlg.transient(self); dlg.grab_set(); dlg.resizable(False, False)
+        f = ttk.Frame(dlg, padding=14); f.pack(fill="both", expand=True)
+
+        ttk.Label(f, text=f"Run Bulk Onboard on {s['count']} row(s)?",
+                  font=("Segoe UI", 11, "bold")).pack(anchor="w")
+        ttk.Label(f, text=f"{s['writes']} API writes — 5 steps per row.",
+                  foreground="gray").pack(anchor="w", pady=(0, 8))
+
+        grid = ttk.Frame(f); grid.pack(fill="x", anchor="w")
+        def line(k, v):
+            r = ttk.Frame(grid); r.pack(fill="x", anchor="w")
+            ttk.Label(r, text=k, width=14, foreground="gray").pack(side="left")
+            ttk.Label(r, text=v, wraplength=460, justify="left").pack(side="left")
+        line("Accounts", " · ".join(f"{a} ({n})" for a, n in s["accounts"].items()))
+        line("Device type", " · ".join(f"{t} ({n})" for t, n in s["device_types"].items()))
+        d = self._bo_defaults()
+        line("Supplier", f"device {d.get('deviceSupplier') or 'CLIENT'} · "
+                         f"asset {d.get('assetSupplier')} / {d.get('assetType')}")
+
+        ttk.Label(f, text="First rows", foreground="gray").pack(anchor="w", pady=(8, 0))
+        prev = tk.Text(f, height=min(5, max(1, len(s["preview"]))), width=66,
+                       relief="solid", borderwidth=1)
+        prev.insert("1.0", "\n".join(s["preview"]))
+        if s["more"]:
+            prev.insert("end", f"\n…and {s['more']} more")
+        prev.config(state="disabled")
+        prev.pack(anchor="w", pady=2)
+
+        for _, w in s["warnings"]:
+            ttk.Label(f, text="⚠  " + w, foreground="#c62828",
+                      wraplength=520, justify="left").pack(anchor="w", pady=1)
+
+        ack = tk.BooleanVar(value=not s["needs_ack"])
+        if s["needs_ack"]:
+            ttk.Checkbutton(
+                f, variable=ack,
+                text="I have checked the accounts — these devices belong to "
+                     "different customers").pack(anchor="w", pady=(6, 0))
+
+        choice = {"go": False, "dry": False}
+        btns = ttk.Frame(f); btns.pack(anchor="e", pady=(12, 0))
+
+        def run_now():
+            if not ack.get():
+                return
+            choice["go"] = True; dlg.destroy()
+
+        def dry():
+            choice["dry"] = True; dlg.destroy()
+
+        ttk.Button(btns, text="Cancel", command=dlg.destroy).pack(side="left", padx=4)
+        ttk.Button(btns, text="Dry run", command=dry).pack(side="left", padx=4)
+        go = ttk.Button(btns, text=f"Run {s['count']} row(s)", command=run_now)
+        go.pack(side="left", padx=4)
+
+        def sync(*_):
+            go.state(["!disabled"] if ack.get() else ["disabled"])
+        ack.trace_add("write", sync); sync()
+        dlg.bind("<Escape>", lambda e: dlg.destroy())
+        self.wait_window(dlg)          # modal; destroyed by its own buttons, not mid-event
+        if choice["dry"]:
+            return "dry"
+        return choice["go"]
 
     # ── the five steps ──
 
@@ -200,71 +412,91 @@ class BulkOnboardTabMixin:
         rows = self._bo_collect()
         if not rows:
             return
-        dry = self.bo_dry.get()
 
-        if dry:
-            self.log(f"── DRY RUN — {len(rows)} row(s), no API calls ──", "info")
-            for r in rows:
-                self.log(f"  {r['device_id']} → vehicle {r['vehicle_id']}, "
-                         f"account {r['account_id']}, type {r['device_type']}", "info")
-            self.log("Dry run complete.", "ok")
+        if self.bo_dry.get():
+            self._bo_dry_report(rows)
             return
 
+        verdict = self._bo_preflight(rows)       # modal: True / "dry" / False
+        if verdict == "dry":
+            self._bo_dry_report(rows)
+            return
+        if not verdict:
+            self.log("Cancelled before any write.", "info")
+            return
+
+        self.after(0, lambda: self._bo_grid_reset(rows))
+        self._bo_execute(list(range(len(rows))))
+
+    def _bo_dry_report(self, rows):
+        self.log(f"── DRY RUN — {len(rows)} row(s), no API calls ──", "info")
+        for r in rows:
+            self.log(f"  {r['device_id']} → vehicle {r['vehicle_id']}, "
+                     f"account {r['account_id']}, type {r['device_type']}", "info")
+        self.log("Dry run complete.", "ok")
+
+    def _bo_execute(self, idxs):
+        """Run the five steps for the given row indices, updating the grid in
+        place. Used by both the initial run and Retry failed."""
         step_gap, row_gap = self._bo_delays()
-        self.log(f"── Bulk Onboard: {len(rows)} row(s) × 5 steps "
+        self.log(f"── Bulk Onboard: {len(idxs)} row(s) × 5 steps "
                  f"(step gap {step_gap:g}s, row gap {row_gap:g}s) ──", "info")
-        results = []
-        for idx, row in enumerate(rows, start=1):
-            if idx > 1 and row_gap and not self.stop_flag:
-                time.sleep(row_gap)
+        for pos, idx in enumerate(idxs):
             if self.stop_flag:
                 self.log("STOPPED by user.", "err")
                 break
-            statuses, halted = {}, False
-            self.log(f"[{idx}/{len(rows)}] device {row['device_id']}", "info")
+            if pos and row_gap:
+                time.sleep(row_gap)
+            rec = self._bo_rows[idx]
+            row = rec["row"]
+            halted = False
+            self.log(f"[{pos+1}/{len(idxs)}] device {row['device_id']}", "info")
             for step_no, (name, call) in enumerate(self._bo_step_calls(row)):
                 if halted:
-                    statuses[name] = ("SKIPPED", "", "")
+                    rec["statuses"][name] = ("SKIPPED", "", "")
                     continue
-                if step_no > 0 and step_gap:
-                    time.sleep(step_gap)          # let the previous change register
+                if step_no and step_gap:
+                    time.sleep(step_gap)
                 if self.stop_flag:
-                    statuses[name] = ("SKIPPED", "", "stopped by user")
+                    rec["statuses"][name] = ("SKIPPED", "", "stopped by user")
                     halted = True
                     continue
                 try:
                     r = call()
                     ok = 200 <= r.status_code < 300
                     body = (r.text or "")[:300]
-                    # A 409 on a CREATE step means the object already exists —
-                    # e.g. a previous partial run created it. That must not
-                    # stop the row, or those rows could never finish steps 3-5.
                     already = (r.status_code == 409
                                and name in ("Device Add", "Asset Add"))
                     if already:
-                        statuses[name] = ("EXISTS", r.status_code, body)
-                        self.log(f"    ⤼ {name} already exists (409) — continuing",
-                                 "info")
-                        continue
-                    statuses[name] = ("SUCCESS" if ok else "FAILED", r.status_code, body)
-                    self.log(f"    {'✓' if ok else '✗'} {name} ({r.status_code})",
-                             "ok" if ok else "err")
-                    if not ok:
-                        halted = True
-                        self.log(f"      ↳ stopping this row; remaining steps skipped",
-                                 "err")
-                        if body:
-                            self.log(f"      ↳ {body[:160]}", "err")
+                        rec["statuses"][name] = ("EXISTS", r.status_code, body)
+                        self.log(f"    ⤼ {name} already exists (409) — continuing", "info")
+                    else:
+                        rec["statuses"][name] = (
+                            "SUCCESS" if ok else "FAILED", r.status_code, body)
+                        self.log(f"    {'✓' if ok else '✗'} {name} ({r.status_code})",
+                                 "ok" if ok else "err")
+                        if not ok:
+                            halted = True
+                            self.log("      ↳ stopping this row; remaining steps skipped",
+                                     "err")
+                            if body:
+                                self.log(f"      ↳ {body[:160]}", "err")
                 except Exception as e:
-                    statuses[name] = ("ERROR", "", str(e)[:300])
+                    rec["statuses"][name] = ("ERROR", "", str(e)[:300])
                     self.log(f"    ✗ {name} — {e}", "err")
                     halted = True
-            results.append((row, statuses, not halted))
+                self.after(0, lambda i=idx: self._bo_grid_update(i))
+            rec["done"] = True
+            self.after(0, lambda i=idx: self._bo_grid_update(i))
 
-        ok_rows = sum(1 for _, _, done in results if done)
-        self.log(f"── Done: {ok_rows}/{len(results)} row(s) completed all 5 steps ──",
-                 "ok" if ok_rows == len(results) else "err")
-        self._bo_save_log(results)
+        ok_rows = sum(1 for r in self._bo_rows
+                      if r["done"] and not self._bo_row_failed(r))
+        self.log(f"── Done: {ok_rows}/{len(self._bo_rows)} row(s) completed all 5 steps ──",
+                 "ok" if ok_rows == len(self._bo_rows) else "err")
+        self.after(0, self._bo_apply_filter)
+        self._bo_save_log([(r["row"], r["statuses"],
+                            r["done"] and not self._bo_row_failed(r))
+                           for r in self._bo_rows])
 
     # ── result workbook: one row per input, a column per step ──
 
