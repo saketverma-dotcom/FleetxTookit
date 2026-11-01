@@ -105,13 +105,20 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
             pass
 
     def _recolor_tk_widgets(self, w):
-        """ttk styling misses the classic tk widgets, so recolour those."""
+        """ttk styling misses the classic tk widgets, so recolour those.
+
+        NOTE: ScrolledText is a Frame wrapping a Text, so the recursion below
+        reaches the inner Text on its own pass — an isinstance() check on the
+        wrapper would miss it, which is how v4.0 left 13 boxes white.
+        """
         import tkinter as _tk
         for child in w.winfo_children():
             try:
                 if isinstance(child, _tk.Text):
                     kind = "log" if getattr(child, "_fx_role", "") == "log" else "text"
                     child.configure(**TH.tk_widget_colors(kind))
+                elif isinstance(child, _tk.Entry):
+                    child.configure(**TH.tk_widget_colors("text"))
                 elif isinstance(child, _tk.Listbox):
                     child.configure(**TH.tk_widget_colors("listbox"))
                 elif isinstance(child, (_tk.Frame, _tk.LabelFrame)):
@@ -657,6 +664,12 @@ class FleetXToolkit(DeviceTabsMixin, CommandTabsMixin, MiscTabsMixin,
         btns.pack(fill="x", padx=8, pady=(0, 8))
         ttk.Button(btns, text="STOP current run", command=self._stop).pack(side="right")
         self.nb.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+
+        # Tabs are built AFTER apply_theme(), so the classic tk widgets they
+        # created (ScrolledText, Listbox, Canvas) still carry Tk's white
+        # defaults. Sweep them now — this is what makes dark actually dark.
+        if getattr(self, "_ui_theme", "classic") == "dark":
+            self._recolor_tk_widgets(self)
 
     # ── SIM device status (battery / online) shared by both SMS tabs ──
 

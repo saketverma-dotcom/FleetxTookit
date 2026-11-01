@@ -206,6 +206,13 @@ class SmsAuthMixin:
             self._sms_build_admin_tab(inner)
         inner.bind("<<NotebookTabChanged>>", self._sms_toggle_log)
         self._sms_toggle_log()
+        # these tabs are built after the theme was applied, so recolour the
+        # classic tk widgets they just created
+        try:
+            if getattr(self, "_ui_theme", "classic") == "dark":
+                self._recolor_tk_widgets(self._sms_content)
+        except Exception:
+            pass
         # initial (background) device status fetch for both dropdowns
         try:
             self._sim_refresh_status()

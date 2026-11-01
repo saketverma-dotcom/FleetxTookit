@@ -18,26 +18,29 @@ DARK is proven in the field.
 
 DARK = {
     "name": "dark",
-    "bg": "#131A21",          # window / tab page
-    "panel": "#1A222B",       # LabelFrame, cards
-    "panel2": "#202A34",      # inputs, table headers
-    "raised": "#26313C",      # secondary buttons
-    "line": "#2A3440",
-    "line_soft": "#222C36",
-    "ink": "#E6EDF3",
-    "ink_dim": "#8B98A5",
-    "ink_faint": "#5E6B78",
-    "accent": "#0FB968",      # Fleetx green — brand + primary action
-    "accent_hi": "#18D278",
-    "accent_ink": "#06130C",  # text on an accent fill
-    "accent_ghost": "#12301F",
-    "ok": "#3FB950",          # status green, deliberately NOT the brand green
-    "warn": "#D9A520",
-    "bad": "#F2544B",
-    "info": "#4C9AFF",
-    "skip": "#6E7B89",
-    "log_bg": "#0F161C",
-    "sel_bg": "#12301F",
+    # Contrast is tuned so each layer is clearly a step apart: the page is the
+    # darkest, panels sit above it, and INPUTS ARE LIGHTER THAN THEIR PANEL so
+    # a text box reads as a text box without having to hunt for its border.
+    "bg": "#121922",          # window / tab page
+    "panel": "#1B242E",       # LabelFrame, cards
+    "panel2": "#374657",      # inputs, table headers — deliberately lighter
+    "raised": "#3C4C5D",      # secondary buttons
+    "line": "#5E7285",        # visible border, not a hairline
+    "line_soft": "#374657",
+    "ink": "#F0F5FA",
+    "ink_dim": "#AEBCC9",     # readable secondary text
+    "ink_faint": "#8795A3",   # hints still legible
+    "accent": "#19C37D",      # Fleetx green — brand + primary action
+    "accent_hi": "#2BD991",
+    "accent_ink": "#04130B",  # text on an accent fill
+    "accent_ghost": "#153624",
+    "ok": "#56D364",          # status green, deliberately NOT the brand green
+    "warn": "#E3B341",
+    "bad": "#FF7B72",
+    "info": "#79B8FF",
+    "skip": "#8795A3",
+    "log_bg": "#0D141B",
+    "sel_bg": "#1D4030",
 }
 
 CLASSIC = {
@@ -129,7 +132,8 @@ def apply_theme(root, name="classic"):
     style.configure("TFrame", background=p["bg"])
     style.configure("TLabel", background=p["bg"], foreground=p["ink"])
     style.configure("TLabelframe", background=p["panel"], bordercolor=p["line"],
-                    lightcolor=p["line"], darkcolor=p["line"])
+                    lightcolor=p["line"], darkcolor=p["line"], borderwidth=1,
+                    relief="solid")
     style.configure("TLabelframe.Label", background=p["panel"], foreground=p["ink_dim"])
     style.configure("TCheckbutton", background=p["bg"], foreground=p["ink"],
                     focuscolor=p["accent"])
@@ -157,7 +161,8 @@ def apply_theme(root, name="classic"):
                     bordercolor=p["line"])
 
     style.configure("TEntry", fieldbackground=p["panel2"], foreground=p["ink"],
-                    bordercolor=p["line"], insertcolor=p["ink"], padding=4)
+                    bordercolor=p["line"], insertcolor=p["ink"], padding=5,
+                    borderwidth=1, relief="solid")
     style.map("TEntry", bordercolor=[("focus", p["accent"])])
     style.configure("TCombobox", fieldbackground=p["panel2"], background=p["panel2"],
                     foreground=p["ink"], arrowcolor=p["ink_dim"], bordercolor=p["line"],
@@ -168,17 +173,18 @@ def apply_theme(root, name="classic"):
               bordercolor=[("focus", p["accent"])])
 
     style.configure("TNotebook", background=p["bg"], bordercolor=p["line"], tabmargins=(2, 4, 2, 0))
-    style.configure("TNotebook.Tab", background=p["panel2"], foreground=p["ink_dim"],
-                    bordercolor=p["line"], padding=(13, 7))
+    style.configure("TNotebook.Tab", background=p["panel"], foreground=p["ink_dim"],
+                    bordercolor=p["line"], padding=(14, 8), font=("Segoe UI", 9))
     style.map("TNotebook.Tab",
-              background=[("selected", p["bg"])],
-              foreground=[("selected", p["ink"])],
-              expand=[("selected", (0, 0, 0, 1))])
+              background=[("selected", p["panel2"]), ("active", p["raised"])],
+              foreground=[("selected", p["accent"]), ("active", p["ink"])],
+              expand=[("selected", (1, 1, 1, 0))])
 
-    style.configure("TScrollbar", background=p["raised"], troughcolor=p["bg"],
-                    bordercolor=p["line"], arrowcolor=p["ink_dim"])
+    style.configure("TScrollbar", background=p["raised"], troughcolor=p["panel"],
+                    bordercolor=p["line"], arrowcolor=p["ink"], width=13)
+    style.map("TScrollbar", background=[("active", p["line"])])
     style.configure("TPanedwindow", background=p["bg"])
-    style.configure("Sash", background=p["line"], gripcount=0)
+    style.configure("Sash", background=p["line"], gripcount=0, sashthickness=5)
     style.configure("TSeparator", background=p["line"])
     style.configure("Hint.TLabel", background=p["bg"], foreground=p["ink_faint"])
     style.configure("Head.TLabel", background=p["bg"], foreground=p["ink"])
@@ -207,14 +213,15 @@ def tk_widget_colors(kind="text"):
     p = _active
     if p is CLASSIC:
         return {}
+    # A 1px highlight border is what makes a dark Text/Listbox read as an
+    # input instead of a hole in the panel.
+    edge = {"highlightthickness": 1, "highlightbackground": p["line"],
+            "highlightcolor": p["accent"], "borderwidth": 0, "relief": "flat"}
     if kind == "log":
-        return {"background": p["log_bg"], "foreground": p["ink"],
-                "insertbackground": p["ink"], "highlightthickness": 0,
-                "selectbackground": p["sel_bg"]}
+        return dict(edge, background=p["log_bg"], foreground=p["ink"],
+                    insertbackground=p["ink"], selectbackground=p["sel_bg"])
     if kind == "listbox":
-        return {"background": p["panel"], "foreground": p["ink"],
-                "selectbackground": p["sel_bg"], "selectforeground": p["ink"],
-                "highlightthickness": 0, "borderwidth": 0}
-    return {"background": p["panel2"], "foreground": p["ink"],
-            "insertbackground": p["ink"], "highlightthickness": 0,
-            "selectbackground": p["sel_bg"]}
+        return dict(edge, background=p["panel2"], foreground=p["ink"],
+                    selectbackground=p["sel_bg"], selectforeground=p["ink"])
+    return dict(edge, background=p["panel2"], foreground=p["ink"],
+                insertbackground=p["ink"], selectbackground=p["sel_bg"])
