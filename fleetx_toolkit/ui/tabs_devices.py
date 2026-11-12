@@ -21,6 +21,7 @@ from ..config import (ACCESS_FILE, ACCESS_URL, ADMIN_EMAILS, ALLOWED_DOMAIN,
                       LOGIN_URL,
                       LOGS_DIR, MOBILE_PARAM, SENSOR_PRESETS, SIM_PROVIDERS,
                       TOKEN_PARAM, load_settings, save_settings)
+from .. import logic as L
 from ..io_utils import (load_excel_column, load_excel_records, parse_curl_command,
                         parse_pasted_ids, parse_pasted_pairs, save_result_log)
 from ..storage import (clear_credentials, load_commands, load_credentials,
@@ -156,6 +157,12 @@ class DeviceTabsMixin:
         ttk.Button(f, text="⬇ Sample Excel",
                    command=lambda: self._download_sample("sim_update", "sim_update_sample.xlsx")
                    ).pack(side="left", padx=4)
+        self.simu_skip_same = tk.BooleanVar(value=True)
+        ttk.Checkbutton(tab, text="Skip devices already carrying this SIM",
+                        variable=self.simu_skip_same).pack(anchor="w", pady=(4, 0))
+        ttk.Label(tab, text="Each device is fetched, only sim/mobile are changed, "
+                            "then the full object is saved back.",
+                  foreground="gray").pack(anchor="w")
         ttk.Button(tab, text="▶ Update SIM Mapping", style="Accent.TButton",
                    command=lambda: self._run_thread(self._run_sim_update)).pack(anchor="w", pady=8)
     def _run_sim_update(self):
@@ -165,15 +172,45 @@ class DeviceTabsMixin:
         records = self._load_excel_safe(load_excel_records, path)
         if records is None: return
 
+        skip_same = bool(getattr(self, "simu_skip_same", None)
+                         and self.simu_skip_same.get())
+
         def fn(rec):
-            did = rec.get("device_id", "")
-            sim = str(rec.get("sim", "")).strip()
-            mob = str(rec.get("mobile", sim)).strip()
+            cell = lambda k: ("" if rec.get(k) is None
+                              else str(rec.get(k)).strip())
+            did, sim = cell("device_id"), cell("sim")
+            # A blank Excel cell comes back as None; str(None) would send the
+            # literal "None" as the mobile number, so fall back to the SIM.
+            mob = cell("mobile") or sim
+            hdr = api_headers(self.token,
+                              content_type="application/json;charset=UTF-8")
+
+            # 1) read the current device — PUT needs the FULL object
+            g = session.get(f"{API_BASE}/api/v1/devices/{did}",
+                            headers=api_headers(self.token), timeout=30)
+            if not (200 <= g.status_code < 300):
+                return (did, "", sim, "GET failed"), g
+            try:
+                dev = g.json()
+            except Exception:
+                g.status_code = 422
+                return (did, "", sim, "GET returned non-JSON"), g
+
+            label = L.device_label(dev)
+            if skip_same and not L.sim_update_needed(dev, sim, mob):
+                class _Skip:
+                    status_code = 200
+                    text = '{"skipped":"already set"}'
+                return (did, label, sim, "already set — skipped"), _Skip()
+
+            # 2) change sim/mobile  3) write the whole object back
+            body, prev = L.apply_sim_update(dev, sim, mob)
             r = session.put(f"{API_BASE}/api/v1/devices/{did}",
-                             json={"sim": sim, "mobile": mob},
-                             headers=api_headers(self.token), timeout=30)
-            return (did, sim), r
-        self._loop(records, "SIM Update", fn, ["Device ID", "SIM"])
+                            json=body, headers=hdr, timeout=30)
+            return (did, label, f"{prev or '(none)'} → {sim}", ""), r
+
+        self._loop(records, "SIM Update", fn,
+                   ["Device ID", "IMEI", "SIM", "Note"])
     def _tab_vehicle_map(self):
         tab = self._scrollable_tab("Vehicle-Device Map", padding=8)
         ttk.Label(tab, text="Paste pairs:  deviceId,vehicleId  (one pair per line)  —  "

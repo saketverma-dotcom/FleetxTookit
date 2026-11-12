@@ -472,3 +472,44 @@ def preflight_summary(rows, defaults=None):
         "more": max(0, len(rows) - 5),
         "needs_ack": any(k == "accounts" for k, _ in warnings),
     }
+
+
+# ─────────────── SIM update: read-modify-write (v4.1) ───────────────
+#
+# PUT /api/v1/devices/{id} expects the FULL device object. The browser request
+# that works carries createdDate, createdBy, deviceType, imei, serialNumber,
+# status, blockInstall and the rest — a three-field body was rejected. So we
+# GET the device, change sim/mobile only, and PUT the whole object back.
+
+def apply_sim_update(device, sim, mobile=None):
+    """Return (new_device, previous_sim).
+
+    Only sim/mobile are touched; every other field is passed through exactly
+    as the server returned it.
+    """
+    if not isinstance(device, dict):
+        raise ValueError("device payload was not a JSON object")
+    prev = device.get("sim")
+    out = dict(device)
+    out["sim"] = sim
+    out["mobile"] = mobile if mobile else sim
+    # GET returns 13 fields and omits blockInstallReason, but the browser's
+    # working PUT sends it as null. Add it only when absent so the body is
+    # identical to the request known to succeed.
+    out.setdefault("blockInstallReason", None)
+    return out, prev
+
+
+def sim_update_needed(device, sim, mobile=None):
+    """True when the device isn't already carrying this SIM."""
+    d = device or {}
+    want_mobile = mobile if mobile else sim
+    return d.get("sim") != sim or d.get("mobile") != want_mobile
+
+
+def device_label(device):
+    """Readable identity for logs: IMEI / serial, falling back to the id."""
+    d = device or {}
+    return (str(d.get("imei") or "").strip()
+            or str(d.get("serialNumber") or "").strip()
+            or str(d.get("id") or "?"))
